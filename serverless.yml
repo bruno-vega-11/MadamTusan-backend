@@ -177,7 +177,7 @@ resources:
           - AttributeName: tenant_id
             AttributeType: S
           - AttributeName: pedido_id
-            AttributeName: S
+            AttributeType: S
         KeySchema:
           - AttributeName: tenant_id
             KeyType: HASH

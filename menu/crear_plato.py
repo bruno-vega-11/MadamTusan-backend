@@ -2,6 +2,7 @@ import json
 import os
 import boto3
 from botocore.exceptions import ClientError
+from decimal import Decimal
 
 # Se inicializa el cliente de DynamoDB fuera del handler para reutilizar la conexión
 dynamodb = boto3.resource('dynamodb')
@@ -55,7 +56,7 @@ def lambda_handle(event, context):
             'uuid': uuid,
             'nombre': nombre,
             'descripcion': descripcion,
-            'precio': int(precio) if float(precio).is_integer() else float(precio), # Evita problemas con Decimal
+            'precio': Decimal(str(precio)), # Evita problemas con Decimal
             'categoria': categoria,
             'imagen_url': imagen_url_final,
             'disponible': True # Por defecto todo plato nuevo está disponible

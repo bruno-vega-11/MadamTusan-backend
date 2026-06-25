@@ -1,0 +1,118 @@
+org: system11
+service: MadamTusan
+
+provider:
+  name: aws
+  runtime: python3.13	
+  # Default memory size for functions (default: 1024MB)
+  memorySize: 1024
+  timeout: 20
+  iam:
+    role: arn:aws:iam::613402871661:role/LabRole
+  environment:
+    TABLE_NAME: ${sls:stage}-t-menu
+    BUCKET_NAME: ${sls:stage}-b-menu-images
+
+functions:
+
+  # ----------------- publicos ------------------------
+  obtener_menu:
+    handler: menu/obtener_menu.lambda_handle
+    events:
+      - http:
+          path: menu
+          method: get
+          cors: true
+          integration: lambda
+  
+  obtener_plato:
+    handler: menu/obtener_plato.lambda_handle
+    events:
+      - http:
+          path: menu/{platoId}
+          method: get
+          cors: true
+          integration: lambda
+  
+# ------------------- privados --------------------------
+  crear_plato:
+    handler: menu/crear_plato.lambda_handle
+    events:
+      - http:
+          path: menu/admin/platos
+          method: post 
+          cors: true
+          integration: lambda
+  
+  actualizar_plato:
+    handler: menu/actualizar_plato.lambda_handle
+    events:
+      - http:
+          path: menu/admin/platos/{platoId}
+          method: put 
+          cors: true
+          integration: lambda
+  
+  actualizar_disponibilidad:
+    handler: menu/actualizar_disponibilidad.lambda_handle
+    events:
+      - http:
+          path: menu/admin/platos/{platoId}/stock
+          method: patch
+          cors: true
+          integration: lambda
+
+  eliminar_plato:
+    handler: menu/eliminar_plato.lambda_handle
+    events:
+      - http:
+          path: menu/admin/platos/{platoId}
+          method: put
+          cors: true
+          integration: lambda
+
+resources:
+  Resources:
+
+    # tenant_id : cliente (por ahora madam tusan)
+    # partition_key : id (uuid que identifica al plato)
+    TablaMenu:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TABLE_NAME}
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: uuid
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: uuid
+            KeyType: RANGE
+        # Set the capacity to auto-scale
+        BillingMode: PAY_PER_REQUEST
+
+    BucketImagenesMenu:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:provider.environment.BUCKET_NAME}
+        PublicAccessBlockConfiguration:
+          BlockPublicPolicy: false
+          RestrictPublicBuckets: false
+          BlockPublicAcls: false
+          IgnorePublicAcls: false
+
+    # --- NUEVO: Política para que cualquier persona en internet pueda ver las fotos --- REVISAR ESTA PARTE,
+    BucketImagenesMenuPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref BucketImagenesMenu
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: "*"
+              Action: "s3:GetObject"
+              Resource: "arn:aws:s3:::${self:provider.environment.BUCKET_NAME}/*"

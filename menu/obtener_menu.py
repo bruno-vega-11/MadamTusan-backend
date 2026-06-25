@@ -24,9 +24,14 @@ def lambda_handle(event, context):
         
         # Validación para verificar que se envie el tenant
         if not tenant_id:
+            print(f"DEBUG - Evento recibido completo: {json.dumps(event)}")
             return {
                 "statusCode": 400,
-                "body": json.dumps({"error": "El parámetro 'tenant_id' es obligatorio."})
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*"
+                },
+                "body": json.dumps({"error": "El parámetro 'tenant_id' es obligatorio en la URL."})
             }
             
         # Hacer la query a DynamoDB usando partion key

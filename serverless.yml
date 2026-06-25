@@ -23,7 +23,6 @@ functions:
           path: menu
           method: get
           cors: true
-          integration: lambda
   
   obtener_plato:
     handler: menu/obtener_plato.lambda_handle
@@ -32,7 +31,6 @@ functions:
           path: menu/{platoId}
           method: get
           cors: true
-          integration: lambda
   
 # ------------------- privados --------------------------
   crear_plato:
@@ -42,7 +40,6 @@ functions:
           path: menu/admin/platos
           method: post 
           cors: true
-          integration: lambda
   
   actualizar_plato:
     handler: menu/actualizar_plato.lambda_handle
@@ -51,7 +48,6 @@ functions:
           path: menu/admin/platos/{platoId}
           method: put 
           cors: true
-          integration: lambda
   
   actualizar_disponibilidad:
     handler: menu/actualizar_disponibilidad.lambda_handle
@@ -60,7 +56,6 @@ functions:
           path: menu/admin/platos/{platoId}/stock
           method: patch
           cors: true
-          integration: lambda
 
   eliminar_plato:
     handler: menu/eliminar_plato.lambda_handle
@@ -69,7 +64,6 @@ functions:
           path: menu/admin/platos/{platoId}
           method: put
           cors: true
-          integration: lambda
 
 resources:
   Resources:

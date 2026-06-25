@@ -9,11 +9,11 @@ from decimal import Decimal
 dynamodb = boto3.resource('dynamodb')
 
 # Se recupera el nombre de la tabla de las variables de entorno definidas en serverless.yml
-table_name = os.environ.get('TABLE_NAME', 'dev-t-menu')
+table_name = os.environ.get('TABLE_MENU', 'dev-t-menu')
 table = dynamodb.Table(table_name)
 
 # Se obtiene el nombre del bucket de imágenes de las variables de entorno definidas en serverless.yml
-bucket_name = os.environ.get('BUCKET_NAME', 'dev-b-menu-images')
+bucket_name = os.environ.get('BUCKET_MENU_IMAGE', 'dev-b-menu-images')
 
 # Inicializamos el cliente de S3 para generar la Presigned URL
 s3_client = boto3.client('s3')

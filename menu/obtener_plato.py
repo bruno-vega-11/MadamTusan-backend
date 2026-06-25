@@ -6,7 +6,7 @@ from decimal import Decimal
 # Se inicializa el cliente de DynamoDB fuera del handler para reutilizar la conexión
 dynamodb = boto3.resource('dynamodb')
 # Se recupera el nombre de la tabla de las variable de entrono definidas en serverless.yml
-table_name = os.environ.get('TABLE_NAME', 'dev-t-menu')
+table_name = os.environ.get('TABLE_MENU', 'dev-t-menu')
 table = dynamodb.Table(table_name)
 
 

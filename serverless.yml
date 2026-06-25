@@ -10,12 +10,11 @@ provider:
   iam:
     role: arn:aws:iam::316137922808:role/LabRole
   environment:
-    TABLE_NAME: ${sls:stage}-t-menu
-    BUCKET_NAME: ${sls:stage}-b-menu-images
+    TABLE_MENU: ${sls:stage}-t-menu
+    TABLE_PEDIDOS: ${sls:stage}-t-pedidos
+    BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images
 
 functions:
-
-  # ----------------- publicos ------------------------
   obtener_menu:
     handler: menu/obtener_menu.lambda_handle
     events:
@@ -31,8 +30,7 @@ functions:
           path: menu/{platoId}
           method: get
           cors: true
-  
-# ------------------- privados --------------------------
+
   crear_plato:
     handler: menu/crear_plato.lambda_handle
     events:
@@ -65,15 +63,99 @@ functions:
           method: put
           cors: true
 
+  crear_pedido:
+    handler: ordenes/crear_pedido.lambda_handle
+    events:
+      - http:
+          path: pedidos
+          method: post
+          cors: true
+
+  validar_stock_pedido:
+    handler: ordenes/validar_stock_pedido.lambda_handle
+  
+  cambiar_estado_pedido:
+    handler: ordenes/cambiar_estado_pedido.lambda_handle
+
+  notificar_cliente:
+    handler: ordenes/notificar_cliente.lambda_handle
+    events:
+      - eventBridge:
+          eventBus: default
+          pattern:
+            source:
+              - custom.madamtusan.pedidos
+            detail-type:
+              - PedidoCreado
+
+stepFunctions:
+  stateMachines:
+    FlujoPedidosStateMachine:
+      name: FlujoPedidosStateMachine-dev
+      # DISPARADOR: EventBridge activa automáticamente esta Step Function
+      events:
+        - eventBridge:
+            eventBus: default
+            pattern:
+              source:
+                - custom.madamtusan.pedidos
+              detail-type:
+                - PedidoCreado
+      definition:
+        Comment: "Orquestación del ciclo de vida de un pedido para Madam Tusan"
+        StartAt: VerificarStockDisponible
+        States:
+          
+          # Evaluar si el Chifa tiene insumos
+          VerificarStockDisponible:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [validar_stock_pedido, Arn]
+            Next: EvaluarResultadoStock
+          
+          # Choice State (Tomar una decisión según el paso anterior)
+          EvaluarResultadoStock:
+            Type: Choice
+            Choices:
+              - Variable: "$.stock_ok"
+                BooleanEquals: true
+                Next: RegistrarPedidoPendiente
+            Default: RechazarPedidoSinStock
+
+          # Si hay stock, se guarda en Dynamo como PENDIENTE
+          RegistrarPedidoPendiente:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [cambiar_estado_pedido, Arn]
+            Parameters:
+              "nuevo_estado": "PENDIENTE"
+              "pedido_data.$": "$"
+            Next: PedidoProcesadoConExito
+
+          # Si NO hay stock, se registra como RECHAZADO y termina
+          RechazarPedidoSinStock:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [cambiar_estado_pedido, Arn]
+            Parameters:
+              "nuevo_estado": "RECHAZADO_SIN_STOCK"
+              "pedido_data.$": "$"
+            Next: PedidoFinalizadoConError
+
+          PedidoProcesadoConExito:
+            Type: Succeed
+
+          PedidoFinalizadoConError:
+            Type: Fail
+            Error: "StockAgotado"
+            Cause: "Uno o más platos solicitados no cuentan con stock disponible."
+
 resources:
   Resources:
-
-    # tenant_id : cliente (por ahora madam tusan)
-    # partition_key : id (uuid que identifica al plato)
     TablaMenu:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: ${self:provider.environment.TABLE_NAME}
+        TableName: ${self:provider.environment.TABLE_MENU}
         AttributeDefinitions:
           - AttributeName: tenant_id
             AttributeType: S
@@ -86,18 +168,34 @@ resources:
             KeyType: RANGE
         # Set the capacity to auto-scale
         BillingMode: PAY_PER_REQUEST
+    
+    TablaPedidos:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TABLE_PEDIDOS}
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: pedido_id
+            AttributeName: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: pedido_id
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
 
     BucketImagenesMenu:
       Type: AWS::S3::Bucket
       Properties:
-        BucketName: ${self:provider.environment.BUCKET_NAME}
+        BucketName: ${self:provider.environment.BUCKET_MENU_IMAGE}
         PublicAccessBlockConfiguration:
           BlockPublicPolicy: false
           RestrictPublicBuckets: false
           BlockPublicAcls: false
           IgnorePublicAcls: false
 
-    # --- NUEVO: Política para que cualquier persona en internet pueda ver las fotos --- REVISAR ESTA PARTE,
+    # --- Política para que cualquier persona en internet pueda ver las fotos --- 
     BucketImagenesMenuPolicy:
       Type: AWS::S3::BucketPolicy
       Properties:
@@ -109,4 +207,4 @@ resources:
               Effect: Allow
               Principal: "*"
               Action: "s3:GetObject"
-              Resource: "arn:aws:s3:::${self:provider.environment.BUCKET_NAME}/*"
+              Resource: "arn:aws:s3:::${self:provider.environment.BUCKET_MENU_IMAGE}/*"

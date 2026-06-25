@@ -61,7 +61,7 @@ functions:
     handler: menu/eliminar_plato.lambda_handle
     events:
       - http:
-          path: menu/admin/platos/{platoId}
+          path: menu/admin/platos/{platoId}/eliminar
           method: put
           cors: true
 

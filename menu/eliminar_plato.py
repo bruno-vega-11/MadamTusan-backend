@@ -43,7 +43,6 @@ def lambda_handle(event, context):
             UpdateExpression="SET disponible = :disp, eliminado = :elim",
             ExpressionAttributeValues={
                 ':disp': False,
-                ':elim': True
             }
         )
 
@@ -57,7 +56,6 @@ def lambda_handle(event, context):
             "body": json.dumps({
                 "mensaje": f"El plato '{plato_id}' de '{tenant_id}' ha sido eliminado lógicamente del catálogo.",
                 "uuid": plato_id,
-                "eliminado": True
             })
         }
 

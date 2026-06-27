@@ -132,7 +132,7 @@ stepFunctions:
     FlujoPedidosStateMachine:
       name: FlujoPedidosStateMachine-${sls:stage}
       events:
-        - eventBridge:
+        - event:
             eventBus: default
             pattern:
               source:

@@ -132,14 +132,6 @@ stepFunctions:
     FlujoPedidosStateMachine:
       name: FlujoPedidosStateMachine-${sls:stage}
       role: arn:aws:iam::316137922808:role/LabRole
-      events:
-        - eventBridge:
-            eventBus: default
-            pattern:
-              source:
-                - custom.madamtusan.pedidos
-              detail-type:
-                - PedidoCreado
       definition:
         Comment: "Orquestación completa del ciclo de vida de un pedido - MadamTusan"
         StartAt: VerificarStockDisponible
@@ -307,3 +299,19 @@ resources:
               Principal: "*"
               Action: "s3:GetObject"
               Resource: "arn:aws:s3:::${self:provider.environment.BUCKET_MENU_IMAGE}/*"
+
+    ReglaEventBridgeFlujoPedidos:
+      Type: AWS::Events::Rule
+      Properties:
+        EventBusName: default
+        EventPattern:
+          source:
+            - custom.madamtusan.pedidos
+          detail-type:
+            - PedidoCreado
+        State: ENABLED
+        Targets:
+          - Id: TargetFlujoPedidosStateMachine
+            Arn: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
+            RoleArn: arn:aws:iam::316137922808:role/LabRole
+            InputPath: "$.detail"

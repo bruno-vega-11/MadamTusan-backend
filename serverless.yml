@@ -16,7 +16,7 @@ provider:
     TABLE_PEDIDOS: ${sls:stage}-t-pedidos
     TABLE_USUARIOS: ${sls:stage}-usuarios
     TABLE_SESIONES: ${sls:stage}-sesiones
-    BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images-tm
+    BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images-tm-716314
     STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
 
 functions:

@@ -14,6 +14,8 @@ provider:
   environment:
     TABLE_MENU: ${sls:stage}-t-menu
     TABLE_PEDIDOS: ${sls:stage}-t-pedidos
+    TABLE_USUARIOS: ${sls:stage}-usuarios
+    TABLE_SESIONES: ${sls:stage}-sesiones
     BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images-tm
     STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
 
@@ -94,6 +96,63 @@ functions:
           path: pedidos/{pedido_id}
           method: get
           cors: true
+
+  # ── USUARIOS ────────────────────────────────────────────────────────────────────
+
+  authorizer:
+    handler: usuarios/validar.lambda_handler
+
+  registro:
+    handler: usuarios/registro.lambda_handler
+    events:
+      - http:
+          path: /usuarios/auth/registro
+          method: post
+          cors: true
+
+  login:
+    handler: usuarios/login.lambda_handler
+    events:
+      - http:
+          path: /usuarios/auth/login
+          method: post
+          cors: true
+
+  logout:
+    handler: usuarios/logout.lambda_handler
+    events:
+      - http:
+          path: /usuarios/auth/logout
+          method: post
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+
+  usuarioperfil:
+    handler: usuarios/get_me.lambda_handler
+    events:
+      - http:
+          path: /usuarios/users/me
+          method: get
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+
+  usuarioupdate:
+    handler: usuarios/update_me.lambda_handler
+    events:
+      - http:
+          path: /usuarios/users/update
+          method: put
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
 
   # ── FLUJO DE TRABAJO ─────────────────────────────────────────────────────────
 
@@ -300,3 +359,31 @@ resources:
           - Arn: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
             Id: FlujoPedidosStateMachineTarget
             RoleArn: arn:aws:iam::716314065038:role/LabRole
+    
+    TablaUsuarios:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TABLE_USUARIOS}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: email
+            KeyType: RANGE
+
+    TablaSesiones:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TABLE_SESIONES}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: token
+            AttributeType: S
+        KeySchema:
+          - AttributeName: token
+            KeyType: HASH

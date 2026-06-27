@@ -285,6 +285,7 @@ resources:
             KeyType: RANGE
         BillingMode: PAY_PER_REQUEST
 
+    # no se que hice el cambio
     BucketImagenesMenu:
       Type: AWS::S3::Bucket
       Properties:

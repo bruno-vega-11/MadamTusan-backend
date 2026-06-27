@@ -13,7 +13,7 @@ table_name = os.environ.get('TABLE_MENU', 'dev-t-menu')
 table = dynamodb.Table(table_name)
 
 # Se obtiene el nombre del bucket de imágenes de las variables de entorno definidas en serverless.yml
-bucket_name = os.environ.get('BUCKET_MENU_IMAGE', 'dev-b-menu-images')
+bucket_name = os.environ.get('BUCKET_MENU_IMAGE', 'dev-b-menu-images-716314')
 
 # Inicializamos el cliente de S3 para generar la Presigned URL
 s3_client = boto3.client('s3')

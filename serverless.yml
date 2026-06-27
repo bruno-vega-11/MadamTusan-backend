@@ -131,6 +131,7 @@ stepFunctions:
   stateMachines:
     FlujoPedidosStateMachine:
       name: FlujoPedidosStateMachine-${sls:stage}
+      role: arn:aws:iam::316137922808:role/LabRole
       events:
         - event:
             eventBus: default

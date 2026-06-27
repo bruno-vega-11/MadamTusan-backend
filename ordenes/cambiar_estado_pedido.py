@@ -1,6 +1,7 @@
 import os
 import boto3
 from datetime import datetime
+from decimal import Decimal
 
 # Inicializamos el recurso de DynamoDB fuera del handler
 dynamodb = boto3.resource('dynamodb')
@@ -39,7 +40,7 @@ def lambda_handle(event, context):
             'origen': pedido_data.get('origen', 'WEB'),
             'cliente': pedido_data.get('cliente', {}),
             'items': pedido_data.get('items', []),
-            'monto_total': pedido_data.get('monto_total', 0.0),
+            'monto_total': Decimal(str(pedido_data.get('monto_total', 0))),
             'fecha_creacion': pedido_data.get('fecha_creacion'),
             'ultima_actualizacion': fecha_actualizacion,
             'historial': [],   # se irá llenando con cada paso del flujo

@@ -1,0 +1,9 @@
+{
+  "name": "madamtusan-backend",
+  "version": "1.0.0",
+  "description": "Backend serverless para restaurante MadamTusan — Cloud Computing",
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-step-functions": "^3.21.0"
+  }
+}

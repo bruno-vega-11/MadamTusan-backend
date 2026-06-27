@@ -20,8 +20,10 @@ def lambda_handle(event, context):
             
         # Extraer campos clave para la trazabilidad básica
         tenant_id = body.get('tenant_id')
-        cliente = body.get('cliente', {})
-        items = body.get('items', []) # Lista de platos con [{uuid, cantidad}, ...]
+        cliente   = body.get('cliente', {})
+        items     = body.get('items', [])   # [{uuid, cantidad}, ...]
+        # 'WEB' = app propia del restaurante | 'RAPPI' = API externa en otra nube
+        origen    = body.get('origen', 'WEB')
         
         # Validaciones de negocio mínimas en la puerta de entrada
         if not tenant_id or not items:
@@ -38,14 +40,14 @@ def lambda_handle(event, context):
         pedido_id = f"ord-{str(uuid.uuid4())[:8]}" # ID corto y amigable de 8 caracteres
         fecha_creacion = datetime.utcnow().isoformat()
         
-        # Construimos el payload consolidado que viajará por el Bus de Eventos
         payload_evento = {
-            "tenant_id": tenant_id,
-            "pedido_id": pedido_id,
+            "tenant_id":     tenant_id,
+            "pedido_id":     pedido_id,
             "fecha_creacion": fecha_creacion,
-            "cliente": cliente,
-            "items": items,
-            "monto_total": body.get('monto_total', 0.0)
+            "origen":        origen,
+            "cliente":       cliente,
+            "items":         items,
+            "monto_total":   body.get('monto_total', 0.0),
         }
         
         # Publicar de forma asíncrona en Amazon EventBridge

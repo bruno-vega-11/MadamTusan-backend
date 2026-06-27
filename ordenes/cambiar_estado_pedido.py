@@ -32,18 +32,19 @@ def lambda_handle(event, context):
         fecha_actualizacion = datetime.utcnow().isoformat()
         
         # 2. Construir la estructura completa del registro para la base de datos
-        # Usamos un 'put_item' para inicializar todo el registro del pedido con su estado inicial
         registro_pedido = {
-            'tenant_id': tenant_id,                    # HASH Key
-            'pedido_id': pedido_id,                    # RANGE Key
-            'estado': nuevo_estado,                     # PENDIENTE / RECHAZADO_SIN_STOCK
+            'tenant_id': tenant_id,
+            'pedido_id': pedido_id,
+            'estado': nuevo_estado,
+            'origen': pedido_data.get('origen', 'WEB'),
             'cliente': pedido_data.get('cliente', {}),
             'items': pedido_data.get('items', []),
             'monto_total': pedido_data.get('monto_total', 0.0),
             'fecha_creacion': pedido_data.get('fecha_creacion'),
-            'ultima_actualizacion': fecha_actualizacion
+            'ultima_actualizacion': fecha_actualizacion,
+            'historial': [],   # se irá llenando con cada paso del flujo
         }
-        
+
         # Si el pedido fue rechazado por stock, arrastramos el motivo para que el cliente sepa por qué
         if 'motivo_rechazo' in pedido_data:
             registro_pedido['motivo_rechazo'] = pedido_data['motivo_rechazo']

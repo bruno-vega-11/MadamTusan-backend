@@ -1,10 +1,13 @@
 org: system11
 service: MadamTusan
 
+# Plugin obligatorio para que el bloque stepFunctions: funcione
+plugins:
+  - serverless-step-functions
+
 provider:
   name: aws
-  runtime: python3.13	
-  # Default memory size for functions (default: 1024MB)
+  runtime: python3.13
   memorySize: 1024
   timeout: 20
   iam:
@@ -15,6 +18,9 @@ provider:
     BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images
 
 functions:
+
+  # ── MENÚ ────────────────────────────────────────────────────────────────────
+
   obtener_menu:
     handler: menu/obtener_menu.lambda_handle
     events:
@@ -22,7 +28,7 @@ functions:
           path: menu
           method: get
           cors: true
-  
+
   obtener_plato:
     handler: menu/obtener_plato.lambda_handle
     events:
@@ -36,17 +42,17 @@ functions:
     events:
       - http:
           path: menu/admin/platos
-          method: post 
+          method: post
           cors: true
-  
+
   actualizar_plato:
     handler: menu/actualizar_plato.lambda_handle
     events:
       - http:
           path: menu/admin/platos/{platoId}
-          method: put 
+          method: put
           cors: true
-  
+
   actualizar_disponibilidad:
     handler: menu/actualizar_disponibilidad.lambda_handle
     events:
@@ -63,6 +69,8 @@ functions:
           method: put
           cors: true
 
+  # ── PEDIDOS (cliente) ────────────────────────────────────────────────────────
+
   crear_pedido:
     handler: ordenes/crear_pedido.lambda_handle
     events:
@@ -71,11 +79,42 @@ functions:
           method: post
           cors: true
 
+  obtener_pedidos:
+    handler: ordenes/obtener_pedidos.lambda_handle
+    events:
+      - http:
+          path: pedidos
+          method: get
+          cors: true
+
+  obtener_pedido:
+    handler: ordenes/obtener_pedido.lambda_handle
+    events:
+      - http:
+          path: pedidos/{pedido_id}
+          method: get
+          cors: true
+
+  # ── FLUJO DE TRABAJO ─────────────────────────────────────────────────────────
+
   validar_stock_pedido:
     handler: ordenes/validar_stock_pedido.lambda_handle
-  
+
   cambiar_estado_pedido:
     handler: ordenes/cambiar_estado_pedido.lambda_handle
+
+  # Guarda el taskToken y pone el pedido en ESPERANDO_X (invocada por Step Functions)
+  asignar_tarea:
+    handler: ordenes/asignar_tarea.lambda_handle
+
+  # El trabajador llama a este endpoint cuando termina su paso del flujo
+  completar_tarea:
+    handler: ordenes/completar_tarea.lambda_handle
+    events:
+      - http:
+          path: pedidos/{pedido_id}/tareas/completar
+          method: put
+          cors: true
 
   notificar_cliente:
     handler: ordenes/notificar_cliente.lambda_handle
@@ -91,8 +130,7 @@ functions:
 stepFunctions:
   stateMachines:
     FlujoPedidosStateMachine:
-      name: FlujoPedidosStateMachine-dev
-      # DISPARADOR: EventBridge activa automáticamente esta Step Function
+      name: FlujoPedidosStateMachine-${sls:stage}
       events:
         - eventBridge:
             eventBus: default
@@ -102,18 +140,18 @@ stepFunctions:
               detail-type:
                 - PedidoCreado
       definition:
-        Comment: "Orquestación del ciclo de vida de un pedido para Madam Tusan"
+        Comment: "Orquestación completa del ciclo de vida de un pedido - MadamTusan"
         StartAt: VerificarStockDisponible
         States:
-          
-          # Evaluar si el Chifa tiene insumos
+
+          # ── 1. Validación automática de stock ─────────────────────────────
           VerificarStockDisponible:
             Type: Task
             Resource:
               Fn::GetAtt: [validar_stock_pedido, Arn]
             Next: EvaluarResultadoStock
-          
-          # Choice State (Tomar una decisión según el paso anterior)
+
+          # ── 2. Decisión: ¿hay stock? ──────────────────────────────────────
           EvaluarResultadoStock:
             Type: Choice
             Choices:
@@ -122,17 +160,7 @@ stepFunctions:
                 Next: RegistrarPedidoPendiente
             Default: RechazarPedidoSinStock
 
-          # Si hay stock, se guarda en Dynamo como PENDIENTE
-          RegistrarPedidoPendiente:
-            Type: Task
-            Resource:
-              Fn::GetAtt: [cambiar_estado_pedido, Arn]
-            Parameters:
-              "nuevo_estado": "PENDIENTE"
-              "pedido_data.$": "$"
-            Next: PedidoProcesadoConExito
-
-          # Si NO hay stock, se registra como RECHAZADO y termina
+          # ── 3a. Sin stock → registrar rechazo y terminar ──────────────────
           RechazarPedidoSinStock:
             Type: Task
             Resource:
@@ -140,8 +168,79 @@ stepFunctions:
             Parameters:
               "nuevo_estado": "RECHAZADO_SIN_STOCK"
               "pedido_data.$": "$"
+            ResultPath: null
             Next: PedidoFinalizadoConError
 
+          # ── 3b. Con stock → registrar como PENDIENTE ──────────────────────
+          RegistrarPedidoPendiente:
+            Type: Task
+            Resource:
+              Fn::GetAtt: [cambiar_estado_pedido, Arn]
+            Parameters:
+              "nuevo_estado": "PENDIENTE"
+              "pedido_data.$": "$"
+            ResultPath: null   # el input original sigue fluyendo al siguiente estado
+            Next: EsperarCocinero
+
+          # ── 4. PASO HUMANO 1: Cocinero toma y prepara el pedido ───────────
+          # Patrón: Wait for Callback with Task Token
+          # La SF queda pausada hasta que el cocinero presione "Completado" en su app.
+          EsperarCocinero:
+            Type: Task
+            Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
+            Parameters:
+              FunctionName:
+                Fn::GetAtt: [asignar_tarea, Arn]
+              Payload:
+                "task_token.$": "$$.Task.Token"
+                paso: "COCINERO"
+                "pedido_data.$": "$"
+            HeartbeatSeconds: 1800   # timeout si el cocinero no responde en 30 min
+            Next: EsperarDespachador
+
+          # ── 5. PASO HUMANO 2: Despachador empaca la comida ────────────────
+          EsperarDespachador:
+            Type: Task
+            Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
+            Parameters:
+              FunctionName:
+                Fn::GetAtt: [asignar_tarea, Arn]
+              Payload:
+                "task_token.$": "$$.Task.Token"
+                paso: "DESPACHADOR"
+                "pedido_data.$": "$"
+            HeartbeatSeconds: 1800
+            Next: EsperarRepartidor
+
+          # ── 6. PASO HUMANO 3: Repartidor lleva el pedido al cliente ───────
+          EsperarRepartidor:
+            Type: Task
+            Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
+            Parameters:
+              FunctionName:
+                Fn::GetAtt: [asignar_tarea, Arn]
+              Payload:
+                "task_token.$": "$$.Task.Token"
+                paso: "REPARTIDOR"
+                "pedido_data.$": "$"
+            HeartbeatSeconds: 3600   # 1 hora para la entrega
+            Next: EsperarRecepcionCliente
+
+          # ── 7. PASO HUMANO 4: Cliente recibe el pedido ────────────────────
+          EsperarRecepcionCliente:
+            Type: Task
+            Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
+            Parameters:
+              FunctionName:
+                Fn::GetAtt: [asignar_tarea, Arn]
+              Payload:
+                "task_token.$": "$$.Task.Token"
+                paso: "RECEPCION_CLIENTE"
+                "pedido_data.$": "$"
+            HeartbeatSeconds: 3600
+            Next: PedidoProcesadoConExito
+
+          # ── Estados terminales ────────────────────────────────────────────
           PedidoProcesadoConExito:
             Type: Succeed
 
@@ -152,6 +251,7 @@ stepFunctions:
 
 resources:
   Resources:
+
     TablaMenu:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -166,9 +266,8 @@ resources:
             KeyType: HASH
           - AttributeName: uuid
             KeyType: RANGE
-        # Set the capacity to auto-scale
         BillingMode: PAY_PER_REQUEST
-    
+
     TablaPedidos:
       Type: AWS::DynamoDB::Table
       Properties:
@@ -195,7 +294,6 @@ resources:
           BlockPublicAcls: false
           IgnorePublicAcls: false
 
-    # --- Política para que cualquier persona en internet pueda ver las fotos --- 
     BucketImagenesMenuPolicy:
       Type: AWS::S3::BucketPolicy
       Properties:

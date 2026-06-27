@@ -62,9 +62,13 @@ def lambda_handle(event, context):
                 }
             ]
         )
+
+        print("EVENTBRIDGE RESPONSE:")
+        print(json.dumps(response, default=str))
         
         # Verificamos si EventBridge rechazó la inserción del evento
         if response.get('FailedEntryCount', 0) > 0:
+            print(response["Entries"])
             raise Exception("EventBridge rechazó la publicación del evento de pedido.")
             
         # Responder inmediatamente al frontend (HTTP 202 Accepted)

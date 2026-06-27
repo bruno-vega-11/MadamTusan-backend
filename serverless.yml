@@ -1,4 +1,3 @@
-org: system11
 service: MadamTusan
 
 # Plugin obligatorio para que el bloque stepFunctions: funcione
@@ -7,15 +6,16 @@ plugins:
 
 provider:
   name: aws
-  runtime: python3.13
+  runtime: python3.11
   memorySize: 1024
   timeout: 20
   iam:
-    role: arn:aws:iam::316137922808:role/LabRole
+    role: arn:aws:iam::716314065038:role/LabRole
   environment:
     TABLE_MENU: ${sls:stage}-t-menu
     TABLE_PEDIDOS: ${sls:stage}-t-pedidos
-    BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images
+    BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images-tm
+    STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
 
 functions:
 
@@ -131,14 +131,7 @@ stepFunctions:
   stateMachines:
     FlujoPedidosStateMachine:
       name: FlujoPedidosStateMachine-${sls:stage}
-      events:
-        - event:
-            eventBus: default
-            pattern:
-              source:
-                - custom.madamtusan.pedidos
-              detail-type:
-                - PedidoCreado
+      role: arn:aws:iam::716314065038:role/LabRole
       definition:
         Comment: "Orquestación completa del ciclo de vida de un pedido - MadamTusan"
         StartAt: VerificarStockDisponible
@@ -147,6 +140,7 @@ stepFunctions:
           # ── 1. Validación automática de stock ─────────────────────────────
           VerificarStockDisponible:
             Type: Task
+            InputPath: $.detail
             Resource:
               Fn::GetAtt: [validar_stock_pedido, Arn]
             Next: EvaluarResultadoStock
@@ -195,7 +189,7 @@ stepFunctions:
                 "task_token.$": "$$.Task.Token"
                 paso: "COCINERO"
                 "pedido_data.$": "$"
-            HeartbeatSeconds: 1800   # timeout si el cocinero no responde en 30 min
+            HeartbeatSeconds: 1800
             Next: EsperarDespachador
 
           # ── 5. PASO HUMANO 2: Despachador empaca la comida ────────────────
@@ -223,7 +217,7 @@ stepFunctions:
                 "task_token.$": "$$.Task.Token"
                 paso: "REPARTIDOR"
                 "pedido_data.$": "$"
-            HeartbeatSeconds: 3600   # 1 hora para la entrega
+            HeartbeatSeconds: 3600
             Next: EsperarRecepcionCliente
 
           # ── 7. PASO HUMANO 4: Cliente recibe el pedido ────────────────────
@@ -288,21 +282,21 @@ resources:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:provider.environment.BUCKET_MENU_IMAGE}
-        PublicAccessBlockConfiguration:
-          BlockPublicPolicy: false
-          RestrictPublicBuckets: false
-          BlockPublicAcls: false
-          IgnorePublicAcls: false
 
-    BucketImagenesMenuPolicy:
-      Type: AWS::S3::BucketPolicy
+    # EventBridge rule creada manualmente para evitar que el plugin intente crear un IAM Role nuevo
+    # (en LabRole no hay permisos para crear roles IAM)
+    EventRulePedidoCreado:
+      Type: AWS::Events::Rule
       Properties:
-        Bucket: !Ref BucketImagenesMenu
-        PolicyDocument:
-          Version: "2012-10-17"
-          Statement:
-            - Sid: PublicReadGetObject
-              Effect: Allow
-              Principal: "*"
-              Action: "s3:GetObject"
-              Resource: "arn:aws:s3:::${self:provider.environment.BUCKET_MENU_IMAGE}/*"
+        Name: PedidoCreado-trigger-${sls:stage}
+        EventBusName: default
+        EventPattern:
+          source:
+            - custom.madamtusan.pedidos
+          detail-type:
+            - PedidoCreado
+        State: ENABLED
+        Targets:
+          - Arn: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
+            Id: FlujoPedidosStateMachineTarget
+            RoleArn: arn:aws:iam::716314065038:role/LabRole

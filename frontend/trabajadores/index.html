@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MadamTusan — Dashboard Trabajadores</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #f1f5f9; }
+    .badge { display:inline-flex; align-items:center; padding:2px 8px;
+             border-radius:9999px; font-size:11px; font-weight:700; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════
+     HEADER
+═══════════════════════════════════════════════════════════ -->
+<header class="bg-slate-900 text-white shadow-lg">
+  <div class="max-w-7xl mx-auto px-6 py-4 flex flex-wrap items-center gap-4">
+    <div class="flex items-center gap-3">
+      <span class="text-3xl">👨‍🍳</span>
+      <div>
+        <h1 class="text-xl font-bold">MadamTusan — Dashboard</h1>
+        <p class="text-slate-400 text-xs">Panel de trabajadores · Flujo de pedidos</p>
+      </div>
+    </div>
+
+    <!-- Input nombre del trabajador -->
+    <div class="flex items-center gap-2 ml-auto">
+      <i class="fa-solid fa-user text-slate-400 text-sm"></i>
+      <input id="worker-name" type="text" placeholder="Tu nombre (para el historial)"
+             class="bg-slate-800 text-white text-sm px-3 py-1.5 rounded-lg border border-slate-600
+                    focus:outline-none focus:border-slate-400 w-48" />
+    </div>
+
+    <!-- Refresh indicator -->
+    <div class="flex items-center gap-2 text-slate-400 text-sm">
+      <i class="fa-solid fa-arrows-rotate fa-spin" id="spin-icon" style="display:none"></i>
+      <span id="refresh-label">Actualizando en <b id="countdown">10</b>s</span>
+      <button onclick="refreshNow()"
+              class="bg-slate-700 hover:bg-slate-600 text-white text-xs px-3 py-1.5 rounded-lg transition">
+        Actualizar
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════
+     BARRA DE ESTADÍSTICAS
+═══════════════════════════════════════════════════════════ -->
+<div class="bg-white border-b shadow-sm">
+  <div class="max-w-7xl mx-auto px-6 py-3 flex flex-wrap gap-3" id="stats-bar">
+    <span class="text-slate-400 text-sm">Cargando estadísticas...</span>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     FILTRO POR ESTADO
+═══════════════════════════════════════════════════════════ -->
+<div class="max-w-7xl mx-auto px-6 pt-5 pb-2 flex flex-wrap gap-2" id="filter-bar">
+  <!-- Generado dinámicamente -->
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     LISTA DE PEDIDOS
+═══════════════════════════════════════════════════════════ -->
+<main class="max-w-7xl mx-auto px-6 pb-10 space-y-4" id="orders-list">
+  <p class="text-slate-400 text-center py-10">Cargando pedidos...</p>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════
+     MODAL — COMPLETAR TAREA
+═══════════════════════════════════════════════════════════ -->
+<div id="modal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
+    <h3 class="text-lg font-bold text-gray-800 mb-1">Completar paso</h3>
+    <p id="modal-desc" class="text-sm text-gray-500 mb-4"></p>
+
+    <label class="block text-xs font-semibold text-gray-600 mb-1">Tu nombre</label>
+    <input id="modal-worker-name" type="text" placeholder="Ej: Juan García"
+           class="w-full border rounded-lg px-3 py-2 text-sm mb-4
+                  focus:outline-none focus:ring-2 focus:ring-slate-300" />
+
+    <p id="modal-error" class="text-red-600 text-xs mb-3 hidden"></p>
+
+    <div class="flex gap-2">
+      <button onclick="closeModal()"
+              class="flex-1 border border-gray-300 text-gray-600 rounded-xl py-2.5 text-sm hover:bg-gray-50">
+        Cancelar
+      </button>
+      <button id="modal-confirm" onclick="confirmComplete()"
+              class="flex-1 bg-slate-900 text-white rounded-xl py-2.5 text-sm font-bold hover:bg-slate-700 transition">
+        ✅ Confirmar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════════════════════ -->
+<script>
+// ============================================================
+//  CONFIGURACIÓN — edita estas líneas antes de usar
+// ============================================================
+//
+//  ► API_URL:
+//    AWS Console → API Gateway → MadamTusan → Stages → dev → "Invoke URL"
+//    Ejemplo:  https://abc12345.execute-api.us-east-1.amazonaws.com/dev
+//
+const API_URL = 'https://eobazsxl0g.execute-api.us-east-1.amazonaws.com/dev';
+
+//  ► TENANT_ID:
+//    AWS Console → DynamoDB → Tablas → dev-t-pedidos → Explorar elementos → columna tenant_id
+//
+const TENANT_ID = 'madam-tusan';
+// ============================================================
+//
+//  ► Para ver el flujo en tiempo real en AWS:
+//    - Step Functions: AWS Console → Step Functions → FlujoPedidosStateMachine-dev
+//      (Cada ejecución muestra el grafo animado con los estados activos)
+//
+//    - DynamoDB — pedidos: AWS Console → DynamoDB → Tablas → dev-t-pedidos → Explorar elementos
+//      (Verás el campo "tarea_actual" con el taskToken del paso activo)
+//
+//    - Logs de Lambda: AWS Console → CloudWatch → Log groups
+//      → /aws/lambda/MadamTusan-dev-asignar_tarea
+//      → /aws/lambda/MadamTusan-dev-completar_tarea
+//
+//    - EventBridge: AWS Console → EventBridge → Event buses → default
+//      (El evento "PedidoCreado" dispara la Step Function y la Lambda notificar_cliente)
+// ============================================================
+
+// Colores y etiquetas por estado
+const ESTADO_CONFIG = {
+  PENDIENTE:             { color: 'bg-gray-200 text-gray-700',    icon: '🕐', label: 'Pendiente',          border: 'border-l-gray-400' },
+  ESPERANDO_COCINERO:    { color: 'bg-yellow-100 text-yellow-800', icon: '👨‍🍳', label: 'Esperando cocinero',  border: 'border-l-yellow-400', accion: { texto: '👨‍🍳 Marcar como preparado', paso: 'COCINERO',          rol: 'Cocinero'    }},
+  EN_PREPARACION:        { color: 'bg-blue-100 text-blue-800',    icon: '🍳', label: 'En preparación',     border: 'border-l-blue-400'  },
+  ESPERANDO_DESPACHADOR: { color: 'bg-purple-100 text-purple-800', icon: '📦', label: 'Esperando despacho', border: 'border-l-purple-400', accion: { texto: '📦 Marcar como empacado',  paso: 'DESPACHADOR',       rol: 'Despachador' }},
+  EN_EMPAQUE:            { color: 'bg-indigo-100 text-indigo-800', icon: '🎁', label: 'Empacando',          border: 'border-l-indigo-400' },
+  ESPERANDO_REPARTIDOR:  { color: 'bg-orange-100 text-orange-800', icon: '🛵', label: 'Esperando reparto',  border: 'border-l-orange-400', accion: { texto: '🛵 Marcar como enviado',   paso: 'REPARTIDOR',        rol: 'Repartidor'  }},
+  EN_CAMINO:             { color: 'bg-amber-100 text-amber-800',  icon: '🗺️', label: 'En camino',          border: 'border-l-amber-400'  },
+  ESPERANDO_ENTREGA:     { color: 'bg-teal-100 text-teal-800',    icon: '🏠', label: 'Por entregar',       border: 'border-l-teal-400',   accion: { texto: '✅ Confirmar entrega',    paso: 'RECEPCION_CLIENTE', rol: 'Repartidor'  }},
+  ENTREGADO:             { color: 'bg-green-100 text-green-800',  icon: '✅', label: 'Entregado',          border: 'border-l-green-500'  },
+  RECHAZADO_SIN_STOCK:   { color: 'bg-red-100 text-red-800',      icon: '❌', label: 'Sin stock',          border: 'border-l-red-400'    },
+};
+
+let allOrders       = [];
+let activeFilter    = 'TODOS';
+let pendingPedidoId = null;
+let pendingPaso     = null;
+let pendingRol      = null;
+let countdownVal    = 10;
+let countdownTimer  = null;
+
+// ── Carga pedidos desde la API ────────────────────────────
+async function loadOrders() {
+  const spin = document.getElementById('spin-icon');
+  spin.style.display = 'inline-block';
+  try {
+    const res  = await fetch(`${API_URL}/pedidos?tenant_id=${TENANT_ID}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al cargar pedidos');
+    allOrders = data.pedidos || [];
+    renderStats();
+    renderOrders();
+  } catch (err) {
+    document.getElementById('orders-list').innerHTML =
+      `<p class="text-red-500 text-center py-10">❌ ${err.message}</p>`;
+  } finally {
+    spin.style.display = 'none';
+  }
+}
+
+// ── Estadísticas ──────────────────────────────────────────
+function renderStats() {
+  const counts = {};
+  allOrders.forEach(o => { counts[o.estado] = (counts[o.estado] || 0) + 1; });
+
+  const bar = document.getElementById('stats-bar');
+  bar.innerHTML = `<span class="text-slate-500 text-sm font-semibold">Total: ${allOrders.length}</span>`;
+
+  // Filtros
+  const filterBar = document.getElementById('filter-bar');
+  filterBar.innerHTML = '';
+  const todosBtn = makeFilterBtn('TODOS', `Todos (${allOrders.length})`);
+  filterBar.appendChild(todosBtn);
+
+  Object.entries(counts).forEach(([estado, n]) => {
+    const cfg = ESTADO_CONFIG[estado] || { color:'bg-gray-200 text-gray-600', icon:'●' };
+    // Stat badge
+    const badge = document.createElement('span');
+    badge.className = `badge ${cfg.color} gap-1`;
+    badge.innerHTML = `<span>${cfg.icon}</span> ${cfg.label || estado} <b>${n}</b>`;
+    bar.appendChild(badge);
+    // Filter button
+    filterBar.appendChild(makeFilterBtn(estado, `${cfg.icon} ${cfg.label || estado} (${n})`));
+  });
+
+  if (activeFilter === 'TODOS') todosBtn.classList.add('bg-slate-800', 'text-white');
+}
+
+function makeFilterBtn(value, label) {
+  const btn = document.createElement('button');
+  btn.textContent = label;
+  btn.className = 'text-xs px-3 py-1.5 rounded-full border border-slate-300 text-slate-600 hover:bg-slate-100 transition';
+  if (activeFilter === value) btn.classList.add('bg-slate-800', 'text-white', 'border-slate-800');
+  btn.onclick = () => {
+    activeFilter = value;
+    document.querySelectorAll('#filter-bar button').forEach(b =>
+      b.classList.remove('bg-slate-800','text-white','border-slate-800'));
+    btn.classList.add('bg-slate-800','text-white','border-slate-800');
+    renderOrders();
+  };
+  return btn;
+}
+
+// ── Render lista de pedidos ───────────────────────────────
+function renderOrders() {
+  const list = document.getElementById('orders-list');
+  list.innerHTML = '';
+
+  const visible = activeFilter === 'TODOS'
+    ? allOrders
+    : allOrders.filter(o => o.estado === activeFilter);
+
+  if (visible.length === 0) {
+    list.innerHTML = '<p class="text-slate-400 text-center py-10">No hay pedidos en este estado.</p>';
+    return;
+  }
+
+  visible.forEach(pedido => list.appendChild(makeOrderCard(pedido)));
+}
+
+function makeOrderCard(p) {
+  const cfg    = ESTADO_CONFIG[p.estado] || { color:'bg-gray-200 text-gray-600', icon:'●', border:'border-l-gray-400', label: p.estado };
+  const accion = cfg.accion;
+
+  const card = document.createElement('div');
+  card.className = `bg-white rounded-xl shadow-sm border-l-4 ${cfg.border} p-5 transition hover:shadow-md`;
+
+  // ── Cabecera ──
+  const header = `
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-sm font-bold text-slate-700">${p.pedido_id}</span>
+          <span class="badge ${cfg.color}">${cfg.icon} ${cfg.label}</span>
+          ${p.origen === 'RAPPI' ? `<span class="badge bg-orange-100 text-orange-700">🛴 Rappi</span>` : ''}
+        </div>
+        <p class="text-xs text-slate-400 mt-0.5">
+          <i class="fa-solid fa-clock mr-1"></i>${formatDate(p.fecha_creacion)}
+        </p>
+      </div>
+      <div class="text-right">
+        <p class="text-lg font-bold text-slate-800">S/ ${Number(p.monto_total).toFixed(2)}</p>
+        <p class="text-xs text-slate-400">${(p.items || []).length} ítem(s)</p>
+      </div>
+    </div>`;
+
+  // ── Cliente ──
+  const cliente = p.cliente || {};
+  const clienteHtml = `
+    <div class="grid grid-cols-3 gap-2 text-xs text-slate-600 bg-slate-50 rounded-lg px-3 py-2 mb-3">
+      <div><i class="fa-solid fa-user text-slate-400 mr-1"></i>${cliente.nombre || '—'}</div>
+      <div><i class="fa-solid fa-phone text-slate-400 mr-1"></i>${cliente.telefono || '—'}</div>
+      <div><i class="fa-solid fa-location-dot text-slate-400 mr-1"></i>${cliente.direccion || '—'}</div>
+    </div>`;
+
+  // ── Ítems ──
+  const items = (p.items || []).map(i =>
+    `<span class="text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">${i.nombre || i.uuid} ×${i.cantidad}</span>`
+  ).join('');
+  const itemsHtml = items ? `<div class="flex flex-wrap gap-1 mb-3">${items}</div>` : '';
+
+  // ── Historial ──
+  const historial = p.historial || [];
+  const historialHtml = historial.length > 0 ? `
+    <details class="mb-3">
+      <summary class="text-xs text-slate-500 cursor-pointer hover:text-slate-700 font-semibold">
+        <i class="fa-solid fa-timeline mr-1"></i>Historial (${historial.length} pasos)
+      </summary>
+      <div class="mt-2 space-y-1 pl-2 border-l-2 border-slate-200">
+        ${historial.map(h => {
+          const duracion = h.inicio && h.fin
+            ? ` · ${calcDuracion(h.inicio, h.fin)}`
+            : '';
+          const quien = h.trabajador?.nombre ? ` · <b>${h.trabajador.nombre}</b> (${h.trabajador.rol || ''})` : '';
+          return `<div class="text-xs text-slate-600">
+            <span class="font-semibold">${ESTADO_CONFIG[h.paso]?.icon || '●'} ${h.paso}</span>
+            <span class="text-slate-400">${duracion}${quien}</span>
+            <div class="text-slate-400">${formatDate(h.inicio)}${h.fin ? ' → ' + formatDate(h.fin) : ' → en curso'}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </details>` : '';
+
+  // ── Tarea activa (sin taskToken, solo paso) ──
+  const tareaHtml = p.tarea_actual?.paso ? `
+    <div class="text-xs text-slate-500 mb-2">
+      <i class="fa-solid fa-hourglass-half mr-1 text-yellow-500"></i>
+      Esperando: <b>${p.tarea_actual.paso}</b> desde ${formatDate(p.tarea_actual.asignado_en)}
+    </div>` : '';
+
+  // ── Rechazo ──
+  const rechazoHtml = p.motivo_rechazo ? `
+    <div class="text-xs text-red-600 bg-red-50 rounded px-2 py-1 mb-3">
+      ❌ ${p.motivo_rechazo}
+    </div>` : '';
+
+  // ── Botón de acción ──
+  const accionHtml = accion ? `
+    <button
+      onclick="openModal('${p.pedido_id}','${accion.paso}','${accion.rol}','${p.pedido_id} — ${accion.texto}')"
+      class="w-full bg-slate-900 hover:bg-slate-700 text-white text-sm font-semibold py-2.5 rounded-xl transition mt-1">
+      ${accion.texto}
+    </button>` : '';
+
+  card.innerHTML = header + clienteHtml + itemsHtml + rechazoHtml + tareaHtml + historialHtml + accionHtml;
+  return card;
+}
+
+// ── Modal ─────────────────────────────────────────────────
+function openModal(pedidoId, paso, rol, desc) {
+  pendingPedidoId = pedidoId;
+  pendingPaso     = paso;
+  pendingRol      = rol;
+  document.getElementById('modal-desc').textContent         = desc;
+  document.getElementById('modal-worker-name').value        = document.getElementById('worker-name').value;
+  document.getElementById('modal-error').classList.add('hidden');
+  document.getElementById('modal').classList.remove('hidden');
+  document.getElementById('modal-confirm').disabled = false;
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.add('hidden');
+  pendingPedidoId = pendingPaso = pendingRol = null;
+}
+
+async function confirmComplete() {
+  const nombre = document.getElementById('modal-worker-name').value.trim();
+  const errEl  = document.getElementById('modal-error');
+
+  if (!nombre) {
+    errEl.textContent = 'Ingresa tu nombre para continuar.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('modal-confirm').disabled = true;
+
+  const body = {
+    tenant_id:  TENANT_ID,
+    trabajador: { nombre, rol: pendingRol },
+  };
+
+  try {
+    const res  = await fetch(`${API_URL}/pedidos/${pendingPedidoId}/tareas/completar`, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || 'Error al completar la tarea');
+
+    // Guardar nombre del trabajador para futuros pasos
+    document.getElementById('worker-name').value = nombre;
+
+    closeModal();
+    await loadOrders();   // refrescar inmediatamente
+
+  } catch (err) {
+    errEl.textContent = '❌ ' + err.message;
+    errEl.classList.remove('hidden');
+    document.getElementById('modal-confirm').disabled = false;
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────
+function formatDate(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso + 'Z').toLocaleString('es-PE', {
+      day:'2-digit', month:'2-digit', year:'numeric',
+      hour:'2-digit', minute:'2-digit',
+    });
+  } catch { return iso; }
+}
+
+function calcDuracion(inicio, fin) {
+  try {
+    const diff = Math.floor((new Date(fin+'Z') - new Date(inicio+'Z')) / 1000);
+    if (diff < 60)   return `${diff}s`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m`;
+    return `${Math.floor(diff/3600)}h ${Math.floor((diff%3600)/60)}m`;
+  } catch { return ''; }
+}
+
+// ── Auto-refresh countdown ────────────────────────────────
+function startCountdown() {
+  countdownVal = 10;
+  document.getElementById('countdown').textContent = countdownVal;
+  if (countdownTimer) clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    countdownVal--;
+    document.getElementById('countdown').textContent = countdownVal;
+    if (countdownVal <= 0) {
+      refreshNow();
+    }
+  }, 1000);
+}
+
+async function refreshNow() {
+  await loadOrders();
+  startCountdown();
+}
+
+// ── Arranque ──────────────────────────────────────────────
+(async () => {
+  await loadOrders();
+  startCountdown();
+})();
+</script>
+</body>
+</html>

@@ -33,7 +33,7 @@ def lambda_handle(event, context):
 
         # 2. Validar cada plato del carrito en la base de datos de menú
         for item in items_pedido:
-            plato_uuid = item.get('plato_id')
+            plato_uuid = item.get('uuid') or item.get('id') or item.get('plato_id')
             nombre_plato = item.get('nombre', plato_uuid)
             
             try:

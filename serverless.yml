@@ -19,8 +19,8 @@ provider:
     TABLE_TRABAJADORES: ${sls:stage}-t-trabajadores
     BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images-tm-716314
     STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
-    # RAPPI_API_URL: ${param:rappi_api_url, 'https://CAMBIAR-EN-OTRA-NUBE.example.com/rappi/pedidos'}
-    # RAPPI_API_KEY: ${param:rappi_api_key, 'CAMBIAR_API_KEY'}
+    RAPPI_API_URL: ${param:rappi_api_url, 'https://emx5fpk72rvtpa2r3mffyu2uny.apigateway.us-chicago-1.oci.customer-oci.com/rappi'}
+    RAPPI_API_KEY: ${param:rappi_api_key, 'f8a3b1c9d2e74a1b9c0f6e2d8a1b7c4e9382'}
 
 functions:
 
@@ -188,8 +188,8 @@ functions:
     handler: ordenes/imprimir_comanda.lambda_handle
 
   # Llama al 2do API REST en otra nube para reflejar el estado del pedido en Rappi
-  # notificar_rappi:
-    # handler: ordenes/notificar_rappi.lambda_handle
+  notificar_rappi:
+    handler: ordenes/notificar_rappi.lambda_handle
 
   # ── FLUJO DE TRABAJO: patrón Wait for Callback with Task Token ────────────────
 
@@ -363,6 +363,27 @@ stepFunctions:
                     Resource:
                       Fn::GetAtt: [imprimir_comanda, Arn]
                     End: true
+
+              - StartAt: EvaluarOrigenRappiCocina
+                States:
+                  EvaluarOrigenRappiCocina:
+                    Type: Choice
+                    Choices:
+                      - Variable: "$.origen"
+                        StringEquals: "RAPPI"
+                        Next: NotificarRappiCocina
+                    Default: NoNotificarRappiCocina
+                  NotificarRappiCocina:
+                    Type: Task
+                    Resource:
+                      Fn::GetAtt: [notificar_rappi, Arn]
+                    Parameters:
+                      estado: "EN_PREPARACION"
+                      "pedido_data.$": "$"
+                    End: true
+                  NoNotificarRappiCocina:
+                    Type: Pass
+                    End: true
             Next: EtapaEmpaque
 
           # ── 5. ETAPA EMPAQUE: trabajo en paralelo ─────────────────────────
@@ -400,6 +421,26 @@ stepFunctions:
                         "trabajador_id.$": "$.trabajador_id"
                         "pedido_data.$": "$$.Execution.Input.detail"
                     HeartbeatSeconds: 1800
+                    End: true
+              - StartAt: EvaluarOrigenRappiEmpaque
+                States:
+                  EvaluarOrigenRappiEmpaque:
+                    Type: Choice
+                    Choices:
+                      - Variable: "$.origen"
+                        StringEquals: "RAPPI"
+                        Next: NotificarRappiEmpaque
+                    Default: NoNotificarRappiEmpaque
+                  NotificarRappiEmpaque:
+                    Type: Task
+                    Resource:
+                      Fn::GetAtt: [notificar_rappi, Arn]
+                    Parameters:
+                      estado: "EMPACADO"
+                      "pedido_data.$": "$"
+                    End: true
+                  NoNotificarRappiEmpaque:
+                    Type: Pass
                     End: true
             Next: EtapaReparto
 
@@ -439,6 +480,26 @@ stepFunctions:
                         "pedido_data.$": "$$.Execution.Input.detail"
                     HeartbeatSeconds: 3600
                     End: true
+              - StartAt: EvaluarOrigenRappiReparto
+                States:
+                  EvaluarOrigenRappiReparto:
+                    Type: Choice
+                    Choices:
+                      - Variable: "$.origen"
+                        StringEquals: "RAPPI"
+                        Next: NotificarRappiReparto
+                    Default: NoNotificarRappiReparto
+                  NotificarRappiReparto:
+                    Type: Task
+                    Resource:
+                      Fn::GetAtt: [notificar_rappi, Arn]
+                    Parameters:
+                      estado: "EN_CAMINO"
+                      "pedido_data.$": "$"
+                    End: true
+                  NoNotificarRappiReparto:
+                    Type: Pass
+                    End: true
             Next: EsperarRecepcionCliente
 
           # ── 7. PASO HUMANO FINAL: cliente confirma recepción ──────────────
@@ -464,13 +525,13 @@ stepFunctions:
                 Next:  PedidoProcesadoConExito
             Default: PedidoProcesadoConExito
 
-          #NotificarRappiEntregado:
-            #Type: Task
-            #Resource:
-              #Fn::GetAtt: [notificar_rappi, Arn]
-            #Parameters:
-              #estado: "ENTREGADO"
-              #"pedido_data.$": "$"
+          NotificarRappiEntregado:
+             Type: Task
+             Resource:
+               Fn::GetAtt: [notificar_rappi, Arn]
+             Parameters:
+               estado: "ENTREGADO"
+               "pedido_data.$": "$"
 
           # ── Estados terminales ─────────────────────────────────────────────
           PedidoProcesadoConExito:

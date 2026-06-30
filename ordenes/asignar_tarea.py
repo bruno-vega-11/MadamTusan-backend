@@ -1,69 +1,62 @@
 import os
 import boto3
-from datetime import datetime
+from datetime import datetime, timezone
+from helpers import a_decimal
 
-dynamodb = boto3.resource('dynamodb')
-table_name = os.environ.get('TABLE_PEDIDOS', 'dev-t-pedidos')
-table = dynamodb.Table(table_name)
+dynamodb = boto3.resource("dynamodb")
+tabla_pedidos = dynamodb.Table(os.environ.get("TABLE_PEDIDOS", "dev-t-pedidos"))
 
-# Estado que se muestra en la app mientras se espera a cada rol
-ESTADO_ESPERA = {
-    'COCINERO':          'ESPERANDO_COCINERO',
-    'DESPACHADOR':       'ESPERANDO_DESPACHADOR',
-    'REPARTIDOR':        'ESPERANDO_REPARTIDOR',
-    'RECEPCION_CLIENTE': 'ESPERANDO_ENTREGA',
-}
 
 def lambda_handle(event, context):
     """
-    asignar_tarea — invocada por Step Functions con waitForTaskToken.
-    Guarda el taskToken en DynamoDB y pone el pedido en estado ESPERANDO_X.
-    La Step Function se queda pausada hasta que 'completar_tarea' llame SendTaskSuccess.
+    Invocada por Step Functions con el patrón waitForTaskToken en cada
+    paso humano (COCINERO, DESPACHADOR, REPARTIDOR, RECEPCION_CLIENTE).
+
+    No completa la tarea: solo guarda el task_token en DynamoDB y marca
+    el pedido como "ESPERANDO_<PASO>" para que la app web de trabajadores
+    pueda mostrarlo en su bandeja. La ejecución de Step Functions queda
+    pausada (sin costo de cómputo) hasta que completar_tarea.py llame a
+    SendTaskSuccess con este mismo token.
+
+    Input esperado:
+        {
+          "task_token": "...",
+          "paso": "COCINERO" | "DESPACHADOR" | "REPARTIDOR" | "RECEPCION_CLIENTE",
+          "trabajador_id": "..."  (opcional, no aplica en RECEPCION_CLIENTE),
+          "pedido_data": { "tenant_id": "...", "pedido_id": "...", ... }
+        }
     """
-    task_token  = event.get('task_token')
-    paso        = event.get('paso')
-    pedido_data = event.get('pedido_data', {})
+    task_token = event["task_token"]
+    paso = event["paso"]
+    trabajador_id = event.get("trabajador_id")
+    pedido_data = event["pedido_data"]
 
-    tenant_id = pedido_data.get('tenant_id')
-    pedido_id = pedido_data.get('pedido_id')
+    tenant_id = pedido_data["tenant_id"]
+    pedido_id = pedido_data["pedido_id"]
+    ahora = datetime.now(timezone.utc).isoformat()
 
-    if not task_token or not paso or not tenant_id or not pedido_id:
-        raise Exception("Faltan parámetros obligatorios: task_token, paso, tenant_id, pedido_id")
-
-    nuevo_estado = ESTADO_ESPERA.get(paso)
-    if not nuevo_estado:
-        raise Exception(f"Paso desconocido: {paso}")
-
-    ahora = datetime.utcnow().isoformat()
-
-    entrada_historial = {
-        'paso':       paso,
-        'estado':     nuevo_estado,
-        'inicio':     ahora,
-        'fin':        None,
-        'trabajador': None,
+    update_expr = (
+        "SET estado = :estado, "
+        "task_token_actual = :token, "
+        "paso_actual = :paso, "
+        f"inicio_{paso.lower()} = :ts"
+    )
+    expr_values = {
+        ":estado": f"ESPERANDO_{paso}",
+        ":token": task_token,
+        ":paso": paso,
+        ":ts": ahora,
     }
 
-    table.update_item(
-        Key={'tenant_id': tenant_id, 'pedido_id': pedido_id},
-        UpdateExpression=(
-            'SET #estado = :estado, '
-            'ultima_actualizacion = :ts, '
-            'tarea_actual = :tarea, '
-            '#historial = list_append(if_not_exists(#historial, :lista_vacia), :entrada)'
-        ),
-        ExpressionAttributeNames={
-            '#estado':   'estado',
-            '#historial': 'historial',
-        },
-        ExpressionAttributeValues={
-            ':estado':      nuevo_estado,
-            ':ts':          ahora,
-            ':tarea':       {'task_token': task_token, 'paso': paso, 'asignado_en': ahora},
-            ':entrada':     [entrada_historial],
-            ':lista_vacia': [],
-        }
+    if trabajador_id:
+        update_expr += f", trabajador_{paso.lower()} = :trabajador_id"
+        expr_values[":trabajador_id"] = trabajador_id
+
+    tabla_pedidos.update_item(
+        Key={"tenant_id": tenant_id, "pedido_id": pedido_id},
+        UpdateExpression=update_expr,
+        ExpressionAttributeValues=a_decimal(expr_values),
     )
 
-    print(f"INFO - Pedido {pedido_id} → {nuevo_estado}. Esperando acción del {paso}.")
-    # La Step Function queda pausada aquí; el return de esta Lambda se ignora.
+    # No se retorna nada relevante: la ejecución queda pausada hasta el callback.
+    return {"ok": True}

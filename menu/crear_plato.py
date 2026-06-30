@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 import boto3
 from botocore.exceptions import ClientError
 from decimal import Decimal
@@ -13,7 +14,7 @@ table_name = os.environ.get('TABLE_MENU', 'dev-t-menu')
 table = dynamodb.Table(table_name)
 
 # Se obtiene el nombre del bucket de imágenes de las variables de entorno definidas en serverless.yml
-bucket_name = os.environ.get('BUCKET_MENU_IMAGE', 'dev-b-menu-images')
+bucket_name = os.environ.get('BUCKET_MENU_IMAGE', 'dev-b-menu-images-716314')
 
 # Inicializamos el cliente de S3 para generar la Presigned URL
 s3_client = boto3.client('s3')
@@ -32,7 +33,7 @@ def lambda_handle(event, context):
             
         # Extraer los campos requeridos para el plato
         tenant_id = body.get('tenant_id')
-        uuid = body.get('uuid')                 
+        uuid = uuid.uuid4()                 
         nombre = body.get('nombre')
         descripcion = body.get('descripcion')
         precio = body.get('precio')
@@ -40,10 +41,10 @@ def lambda_handle(event, context):
         nombre_archivo_imagen = body.get('nombre_imagen')
         
         # Validaciones de campos obligatorios
-        if not all([tenant_id, uuid, nombre, precio, categoria]):
+        if not all([tenant_id, nombre, precio, categoria]):
             return {
                 "statusCode": 400,
-                "body": json.dumps({"error": "Faltan campos obligatorios (tenant_id, uuid, nombre, precio, categoria)."})
+                "body": json.dumps({"error": "Faltan campos obligatorios (tenant_id, nombre, precio, categoria)."})
             }
 
         # Calcular la URL pública final que tendrá la imagen una vez subida a S3

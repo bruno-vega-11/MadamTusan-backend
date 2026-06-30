@@ -1,4 +1,3 @@
-org: system11
 service: MadamTusan
 
 # Plugin obligatorio para que el bloque stepFunctions: funcione
@@ -7,15 +6,21 @@ plugins:
 
 provider:
   name: aws
-  runtime: python3.13
+  runtime: python3.11
   memorySize: 1024
   timeout: 20
   iam:
-    role: arn:aws:iam::316137922808:role/LabRole
+    role: arn:aws:iam::095017321977:role/LabRole
   environment:
     TABLE_MENU: ${sls:stage}-t-menu
     TABLE_PEDIDOS: ${sls:stage}-t-pedidos
-    BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images
+    TABLE_USUARIOS: ${sls:stage}-usuarios
+    TABLE_SESIONES: ${sls:stage}-sesiones
+    TABLE_TRABAJADORES: ${sls:stage}-t-trabajadores
+    BUCKET_MENU_IMAGE: ${sls:stage}-b-menu-images-tm-716314
+    STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
+    # RAPPI_API_URL: ${param:rappi_api_url, 'https://CAMBIAR-EN-OTRA-NUBE.example.com/rappi/pedidos'}
+    # RAPPI_API_KEY: ${param:rappi_api_key, 'CAMBIAR_API_KEY'}
 
 functions:
 
@@ -95,13 +100,98 @@ functions:
           method: get
           cors: true
 
-  # ── FLUJO DE TRABAJO ─────────────────────────────────────────────────────────
+  # ── USUARIOS ────────────────────────────────────────────────────────────────────
+
+  authorizer:
+    handler: usuarios/validar.lambda_handler
+
+  registro:
+    handler: usuarios/registro.lambda_handler
+    events:
+      - http:
+          path: /usuarios/auth/registro
+          method: post
+          cors: true
+
+  login:
+    handler: usuarios/login.lambda_handler
+    events:
+      - http:
+          path: /usuarios/auth/login
+          method: post
+          cors: true
+
+  logout:
+    handler: usuarios/logout.lambda_handler
+    events:
+      - http:
+          path: /usuarios/auth/logout
+          method: post
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+
+  usuarioperfil:
+    handler: usuarios/get_me.lambda_handler
+    events:
+      - http:
+          path: /usuarios/users/me
+          method: get
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+
+  usuarioupdate:
+    handler: usuarios/update_me.lambda_handler
+    events:
+      - http:
+          path: /usuarios/users/update
+          method: put
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+
+  # ── FLUJO DE TRABAJO: validación y cambios de estado ──────────────────────────
 
   validar_stock_pedido:
     handler: ordenes/validar_stock_pedido.lambda_handle
 
   cambiar_estado_pedido:
     handler: ordenes/cambiar_estado_pedido.lambda_handle
+
+  # ── FLUJO DE TRABAJO: disponibilidad de personal (lógica real, no solo paso de datos) ──
+
+  consultar_cocinero_disponible:
+    handler: ordenes/consultar_disponibilidad.lambda_handle
+    environment:
+      ROL: COCINERO
+
+  consultar_despachador_disponible:
+    handler: ordenes/consultar_disponibilidad.lambda_handle
+    environment:
+      ROL: DESPACHADOR
+
+  consultar_repartidor_disponible:
+    handler: ordenes/consultar_disponibilidad.lambda_handle
+    environment:
+      ROL: REPARTIDOR
+
+  # ── FLUJO DE TRABAJO: tareas no bloqueantes en paralelo ───────────────────────
+
+  imprimir_comanda:
+    handler: ordenes/imprimir_comanda.lambda_handle
+
+  # Llama al 2do API REST en otra nube para reflejar el estado del pedido en Rappi
+  # notificar_rappi:
+    # handler: ordenes/notificar_rappi.lambda_handle
+
+  # ── FLUJO DE TRABAJO: patrón Wait for Callback with Task Token ────────────────
 
   # Guarda el taskToken y pone el pedido en ESPERANDO_X (invocada por Step Functions)
   asignar_tarea:
@@ -115,6 +205,54 @@ functions:
           path: pedidos/{pedido_id}/tareas/completar
           method: put
           cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+
+  crear_trabajador:
+    handler: trabajadores/crear_trabajador.lambda_handle
+    environment:
+      TABLE_TRABAJADORES: dev-t-trabajadores
+    events:
+      - http:
+          path: trabajadores
+          method: post
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+ 
+  listar_trabajadores:
+    handler: trabajadores/listar_trabajadores.lambda_handle
+    environment:
+      TABLE_TRABAJADORES: dev-t-trabajadores
+    events:
+      - http:
+          path: trabajadores
+          method: get
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+ 
+  eliminar_trabajador:
+    handler: trabajadores/eliminar_trabajador.lambda_handle
+    environment:
+      TABLE_TRABAJADORES: dev-t-trabajadores
+    events:
+      - http:
+          path: trabajadores/{trabajador_id}/eliminar
+          method: put
+          cors: true
+          authorizer:
+            name: authorizer
+            resultTtlInSeconds: 0
+            type: request
+            
+  # ── EVENTOS ────────────────────────────────────────────────────────────────────
 
   notificar_cliente:
     handler: ordenes/notificar_cliente.lambda_handle
@@ -126,6 +264,7 @@ functions:
               - custom.madamtusan.pedidos
             detail-type:
               - PedidoCreado
+              - PasoCompletado
 
 stepFunctions:
   stateMachines:
@@ -140,6 +279,7 @@ stepFunctions:
           # ── 1. Validación automática de stock ─────────────────────────────
           VerificarStockDisponible:
             Type: Task
+            InputPath: $.detail
             Resource:
               Fn::GetAtt: [validar_stock_pedido, Arn]
             Next: EvaluarResultadoStock
@@ -172,54 +312,136 @@ stepFunctions:
             Parameters:
               "nuevo_estado": "PENDIENTE"
               "pedido_data.$": "$"
-            ResultPath: null   # el input original sigue fluyendo al siguiente estado
-            Next: EsperarCocinero
+            ResultPath: null
+            Next: EtapaCocina
 
-          # ── 4. PASO HUMANO 1: Cocinero toma y prepara el pedido ───────────
-          # Patrón: Wait for Callback with Task Token
-          # La SF queda pausada hasta que el cocinero presione "Completado" en su app.
-          EsperarCocinero:
-            Type: Task
-            Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
-            Parameters:
-              FunctionName:
-                Fn::GetAtt: [asignar_tarea, Arn]
-              Payload:
-                "task_token.$": "$$.Task.Token"
-                paso: "COCINERO"
-                "pedido_data.$": "$"
-            HeartbeatSeconds: 1800   # timeout si el cocinero no responde en 30 min
-            Next: EsperarDespachador
+          # ── 4. ETAPA COCINA: trabajo en paralelo ──────────────────────────
+          # Rama A: consulta disponibilidad real de cocineros y solo entonces
+          #         espera con waitForTaskToken (Wait for Callback Pattern).
+          # Rama B: imprime la comanda sin bloquear a nadie.
+          # Rama C: si el pedido vino de Rappi, notifica el cambio de estado
+          #         al 2do API REST en otra nube.
+          EtapaCocina:
+            Type: Parallel
+            ResultPath: null
+            Branches:
+              - StartAt: ConsultarCocineroDisponible
+                States:
+                  ConsultarCocineroDisponible:
+                    Type: Task
+                    Resource:
+                      Fn::GetAtt: [consultar_cocinero_disponible, Arn]
+                    Next: HayCocineroLibre
+                  HayCocineroLibre:
+                    Type: Choice
+                    Choices:
+                      - Variable: "$.disponible"
+                        BooleanEquals: true
+                        Next: EsperarCocinero
+                    Default: EsperarYReintentarCocinero
+                  EsperarYReintentarCocinero:
+                    Type: Wait
+                    Seconds: 15
+                    Next: ConsultarCocineroDisponible
+                  EsperarCocinero:
+                    Type: Task
+                    Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
+                    Parameters:
+                      FunctionName:
+                        Fn::GetAtt: [asignar_tarea, Arn]
+                      Payload:
+                        "task_token.$": "$$.Task.Token"
+                        paso: "COCINERO"
+                        "trabajador_id.$": "$.trabajador_id"
+                        "pedido_data.$": "$$.Execution.Input.detail"
+                    HeartbeatSeconds: 1800
+                    End: true
+              - StartAt: ImprimirComanda
+                States:
+                  ImprimirComanda:
+                    Type: Task
+                    Resource:
+                      Fn::GetAtt: [imprimir_comanda, Arn]
+                    End: true
+            Next: EtapaEmpaque
 
-          # ── 5. PASO HUMANO 2: Despachador empaca la comida ────────────────
-          EsperarDespachador:
-            Type: Task
-            Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
-            Parameters:
-              FunctionName:
-                Fn::GetAtt: [asignar_tarea, Arn]
-              Payload:
-                "task_token.$": "$$.Task.Token"
-                paso: "DESPACHADOR"
-                "pedido_data.$": "$"
-            HeartbeatSeconds: 1800
-            Next: EsperarRepartidor
+          # ── 5. ETAPA EMPAQUE: trabajo en paralelo ─────────────────────────
+          EtapaEmpaque:
+            Type: Parallel
+            ResultPath: null
+            Branches:
+              - StartAt: ConsultarDespachadorDisponible
+                States:
+                  ConsultarDespachadorDisponible:
+                    Type: Task
+                    Resource:
+                      Fn::GetAtt: [consultar_despachador_disponible, Arn]
+                    Next: HayDespachadorLibre
+                  HayDespachadorLibre:
+                    Type: Choice
+                    Choices:
+                      - Variable: "$.disponible"
+                        BooleanEquals: true
+                        Next: EsperarDespachador
+                    Default: EsperarYReintentarDespachador
+                  EsperarYReintentarDespachador:
+                    Type: Wait
+                    Seconds: 15
+                    Next: ConsultarDespachadorDisponible
+                  EsperarDespachador:
+                    Type: Task
+                    Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
+                    Parameters:
+                      FunctionName:
+                        Fn::GetAtt: [asignar_tarea, Arn]
+                      Payload:
+                        "task_token.$": "$$.Task.Token"
+                        paso: "DESPACHADOR"
+                        "trabajador_id.$": "$.trabajador_id"
+                        "pedido_data.$": "$$.Execution.Input.detail"
+                    HeartbeatSeconds: 1800
+                    End: true
+            Next: EtapaReparto
 
-          # ── 6. PASO HUMANO 3: Repartidor lleva el pedido al cliente ───────
-          EsperarRepartidor:
-            Type: Task
-            Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
-            Parameters:
-              FunctionName:
-                Fn::GetAtt: [asignar_tarea, Arn]
-              Payload:
-                "task_token.$": "$$.Task.Token"
-                paso: "REPARTIDOR"
-                "pedido_data.$": "$"
-            HeartbeatSeconds: 3600   # 1 hora para la entrega
+          # ── 6. ETAPA REPARTO: trabajo en paralelo ─────────────────────────
+          EtapaReparto:
+            Type: Parallel
+            ResultPath: null
+            Branches:
+              - StartAt: ConsultarRepartidorDisponible
+                States:
+                  ConsultarRepartidorDisponible:
+                    Type: Task
+                    Resource:
+                      Fn::GetAtt: [consultar_repartidor_disponible, Arn]
+                    Next: HayRepartidorLibre
+                  HayRepartidorLibre:
+                    Type: Choice
+                    Choices:
+                      - Variable: "$.disponible"
+                        BooleanEquals: true
+                        Next: EsperarRepartidor
+                    Default: EsperarYReintentarRepartidor
+                  EsperarYReintentarRepartidor:
+                    Type: Wait
+                    Seconds: 15
+                    Next: ConsultarRepartidorDisponible
+                  EsperarRepartidor:
+                    Type: Task
+                    Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
+                    Parameters:
+                      FunctionName:
+                        Fn::GetAtt: [asignar_tarea, Arn]
+                      Payload:
+                        "task_token.$": "$$.Task.Token"
+                        paso: "REPARTIDOR"
+                        "trabajador_id.$": "$.trabajador_id"
+                        "pedido_data.$": "$$.Execution.Input.detail"
+                    HeartbeatSeconds: 3600
+                    End: true
             Next: EsperarRecepcionCliente
 
-          # ── 7. PASO HUMANO 4: Cliente recibe el pedido ────────────────────
+          # ── 7. PASO HUMANO FINAL: cliente confirma recepción ──────────────
           EsperarRecepcionCliente:
             Type: Task
             Resource: "arn:aws:states:::lambda:invoke.waitForTaskToken"
@@ -229,11 +451,28 @@ stepFunctions:
               Payload:
                 "task_token.$": "$$.Task.Token"
                 paso: "RECEPCION_CLIENTE"
-                "pedido_data.$": "$"
+                "pedido_data.$": "$$.Execution.Input.detail"
             HeartbeatSeconds: 3600
-            Next: PedidoProcesadoConExito
+            Next: NotificarEntregaFinalRappi
 
-          # ── Estados terminales ────────────────────────────────────────────
+          # ── 8. Notificación final condicional a Rappi ─────────────────────
+          NotificarEntregaFinalRappi:
+            Type: Choice
+            Choices:
+              - Variable: "$.origen"
+                StringEquals: "RAPPI"
+                Next:  PedidoProcesadoConExito
+            Default: PedidoProcesadoConExito
+
+          #NotificarRappiEntregado:
+            #Type: Task
+            #Resource:
+              #Fn::GetAtt: [notificar_rappi, Arn]
+            #Parameters:
+              #estado: "ENTREGADO"
+              #"pedido_data.$": "$"
+
+          # ── Estados terminales ─────────────────────────────────────────────
           PedidoProcesadoConExito:
             Type: Succeed
 
@@ -277,32 +516,44 @@ resources:
             KeyType: RANGE
         BillingMode: PAY_PER_REQUEST
 
+    # Tabla nueva: necesaria para que el Choice de disponibilidad tenga
+    # algo real que consultar (no solo una decisión simulada).
+    TablaTrabajadores:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TABLE_TRABAJADORES}
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: trabajador_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: trabajador_id
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        GlobalSecondaryIndexes:
+          - IndexName: rol-estado-index
+            KeySchema:
+              - AttributeName: tenant_id
+                KeyType: HASH
+              - AttributeName: trabajador_id
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+
     BucketImagenesMenu:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:provider.environment.BUCKET_MENU_IMAGE}
-        PublicAccessBlockConfiguration:
-          BlockPublicPolicy: false
-          RestrictPublicBuckets: false
-          BlockPublicAcls: false
-          IgnorePublicAcls: false
 
-    BucketImagenesMenuPolicy:
-      Type: AWS::S3::BucketPolicy
-      Properties:
-        Bucket: !Ref BucketImagenesMenu
-        PolicyDocument:
-          Version: "2012-10-17"
-          Statement:
-            - Sid: PublicReadGetObject
-              Effect: Allow
-              Principal: "*"
-              Action: "s3:GetObject"
-              Resource: "arn:aws:s3:::${self:provider.environment.BUCKET_MENU_IMAGE}/*"
-
-    ReglaEventBridgeFlujoPedidos:
+    # EventBridge rule creada manualmente para evitar que el plugin intente crear un IAM Role nuevo
+    # (en LabRole no hay permisos para crear roles IAM)
+    EventRulePedidoCreado:
       Type: AWS::Events::Rule
       Properties:
+        Name: PedidoCreado-trigger-${sls:stage}
         EventBusName: default
         EventPattern:
           source:
@@ -311,7 +562,34 @@ resources:
             - PedidoCreado
         State: ENABLED
         Targets:
-          - Id: TargetFlujoPedidosStateMachine
-            Arn: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
-            RoleArn: arn:aws:iam::316137922808:role/LabRole
-            InputPath: "$.detail"
+          - Arn: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:FlujoPedidosStateMachine-${sls:stage}"
+            Id: FlujoPedidosStateMachineTarget
+            RoleArn: arn:aws:iam::095017321977:role/LabRole
+
+    TablaUsuarios:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TABLE_USUARIOS}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: email
+            KeyType: RANGE
+
+    TablaSesiones:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.TABLE_SESIONES}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: token
+            AttributeType: S
+        KeySchema:
+          - AttributeName: token
+            KeyType: HASH

@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MadamTusan — Haz tu pedido</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #fdf6ec; }
+    .cat-btn.active { background: #b91c1c; color: white; }
+    .step-done   { background: #16a34a; }
+    .step-active { background: #b91c1c; animation: pulse 1.5s infinite; }
+    .step-wait   { background: #d1d5db; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+    .cart-empty  { color: #9ca3af; }
+    /* Scrollbar delgada en el carrito */
+    #cart-list::-webkit-scrollbar { width: 4px; }
+    #cart-list::-webkit-scrollbar-thumb { background:#e5e7eb; border-radius:4px; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════════
+     HEADER
+═══════════════════════════════════════════════════════════ -->
+<header class="bg-red-800 text-white shadow-lg">
+  <div class="max-w-7xl mx-auto px-6 py-4 flex items-center gap-4">
+    <span class="text-4xl">🍜</span>
+    <div>
+      <h1 class="text-2xl font-bold tracking-wide">MadamTusan</h1>
+      <p class="text-red-200 text-sm">Auténtica Cocina Chifa · Pide en línea</p>
+    </div>
+    <div class="ml-auto text-right">
+      <span class="text-red-200 text-xs block">¿Eres trabajador?</span>
+      <a href="../trabajadores/index.html"
+         class="text-white text-sm underline hover:text-yellow-300">
+        Ir al Dashboard →
+      </a>
+    </div>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════
+     MAIN: Menú + Carrito
+═══════════════════════════════════════════════════════════ -->
+<main class="max-w-7xl mx-auto px-4 py-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+  <!-- ── SECCIÓN MENÚ (2/3) ────────────────────────────── -->
+  <section class="lg:col-span-2">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-xl font-bold text-gray-800">Nuestra carta</h2>
+      <span id="menu-status" class="text-sm text-gray-500">Cargando menú...</span>
+    </div>
+
+    <!-- Filtros de categoría -->
+    <div id="cat-filters" class="flex flex-wrap gap-2 mb-5"></div>
+
+    <!-- Grid de platos -->
+    <div id="menu-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+  </section>
+
+  <!-- ── CARRITO (1/3) ─────────────────────────────────── -->
+  <aside class="bg-white rounded-2xl shadow-md flex flex-col h-fit sticky top-4">
+    <div class="bg-red-800 text-white rounded-t-2xl px-5 py-4 flex items-center gap-2">
+      <i class="fa-solid fa-bag-shopping"></i>
+      <h2 class="font-bold text-lg">Mi pedido</h2>
+      <span id="cart-count"
+            class="ml-auto bg-yellow-400 text-red-900 text-xs font-bold rounded-full px-2 py-0.5">
+        0
+      </span>
+    </div>
+
+    <!-- Lista de ítems -->
+    <div id="cart-list" class="px-4 py-3 max-h-52 overflow-y-auto space-y-2">
+      <p id="cart-empty" class="text-gray-400 text-sm text-center py-4">
+        Aún no agregaste nada 🍽️
+      </p>
+    </div>
+
+    <!-- Total -->
+    <div class="border-t mx-4 pt-3 pb-2 flex justify-between text-gray-800 font-semibold">
+      <span>Total</span>
+      <span id="cart-total">S/ 0.00</span>
+    </div>
+
+    <!-- Formulario del cliente -->
+    <div class="px-4 pb-4 space-y-2">
+      <p class="text-xs text-gray-500 font-semibold uppercase tracking-wide mt-1">Tus datos</p>
+      <input id="cli-nombre"    type="text"   placeholder="Nombre completo *"
+             class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300" />
+      <input id="cli-telefono"  type="tel"    placeholder="Teléfono *"
+             class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300" />
+      <input id="cli-direccion" type="text"   placeholder="Dirección de entrega *"
+             class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300" />
+      <button onclick="hacerPedido()"
+              class="w-full bg-red-700 hover:bg-red-800 text-white font-bold py-3 rounded-xl
+                     transition disabled:opacity-40 mt-2"
+              id="btn-pedir">
+        <i class="fa-solid fa-paper-plane mr-2"></i>Hacer pedido
+      </button>
+      <p id="pedido-error" class="text-red-600 text-xs hidden"></p>
+    </div>
+  </aside>
+</main>
+
+<!-- ══════════════════════════════════════════════════════════
+     MODAL — SEGUIMIENTO DEL PEDIDO
+═══════════════════════════════════════════════════════════ -->
+<div id="tracker-modal"
+     class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+    <div class="text-center mb-5">
+      <span class="text-5xl">🎉</span>
+      <h3 class="text-xl font-bold text-gray-800 mt-2">¡Pedido recibido!</h3>
+      <p class="text-sm text-gray-500">ID: <span id="tracker-id" class="font-mono font-semibold text-red-700"></span></p>
+    </div>
+
+    <!-- Timeline de estados -->
+    <div class="space-y-3 mb-6">
+      <div class="flex items-center gap-3">
+        <div id="s1" class="step-active w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">1</div>
+        <div>
+          <p class="font-semibold text-sm text-gray-800">Pedido recibido</p>
+          <p class="text-xs text-gray-500">Validando disponibilidad</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div id="s2" class="step-wait w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">2</div>
+        <div>
+          <p class="font-semibold text-sm text-gray-800">En preparación</p>
+          <p class="text-xs text-gray-500">El cocinero está trabajando</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div id="s3" class="step-wait w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">3</div>
+        <div>
+          <p class="font-semibold text-sm text-gray-800">En camino</p>
+          <p class="text-xs text-gray-500">El repartidor está en ruta</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div id="s4" class="step-wait w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">4</div>
+        <div>
+          <p class="font-semibold text-sm text-gray-800">Entregado</p>
+          <p class="text-xs text-gray-500">¡Disfruta tu pedido!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Estado actual -->
+    <div class="bg-gray-50 rounded-xl px-4 py-3 text-center mb-4">
+      <p class="text-xs text-gray-500">Estado actual</p>
+      <p id="tracker-estado" class="font-bold text-gray-800 text-sm mt-1">—</p>
+    </div>
+
+    <!-- Rechazo -->
+    <div id="tracker-rechazo" class="hidden bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-center mb-4">
+      <p class="text-red-700 text-sm font-semibold">⚠️ Pedido no disponible</p>
+      <p id="tracker-rechazo-msg" class="text-red-600 text-xs mt-1"></p>
+    </div>
+
+    <div class="flex gap-2">
+      <button onclick="cerrarTracker()"
+              class="flex-1 border border-gray-300 text-gray-600 rounded-xl py-2 text-sm hover:bg-gray-50">
+        Cerrar
+      </button>
+      <button onclick="nuevoPedido()"
+              class="flex-1 bg-red-700 text-white rounded-xl py-2 text-sm font-semibold hover:bg-red-800">
+        Nuevo pedido
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════
+     JAVASCRIPT
+═══════════════════════════════════════════════════════════ -->
+<script>
+// ============================================================
+//  CONFIGURACIÓN — edita estas líneas antes de usar
+// ============================================================
+//
+//  ► API_URL:
+//    1. Ve a AWS Console → API Gateway
+//    2. Selecciona tu API "MadamTusan"
+//    3. Panel izquierdo → "Stages" → "dev"
+//    4. Copia el "Invoke URL" que aparece arriba (ej: https://abc123.execute-api.us-east-1.amazonaws.com/dev)
+//
+const API_URL = 'https://eobazsxl0g.execute-api.us-east-1.amazonaws.com/dev';
+
+//  ► TENANT_ID:
+//    Es el tenant que usaste al crear ítems en el menú.
+//    Ve a DynamoDB → Tablas → dev-t-menu → Explorar elementos → column tenant_id
+//
+const TENANT_ID = 'madam-tusan';
+// ============================================================
+
+// Estado local
+let cart = [];          // [{ id, nombre, precio, cantidad }]
+let allItems = [];      // todos los platos cargados
+let activeCategory = null;
+let trackerInterval  = null;
+let currentPedidoId  = null;
+
+// ── Carga el menú desde la API ────────────────────────────
+async function loadMenu() {
+  try {
+    const res  = await fetch(`${API_URL}/menu?tenant_id=${TENANT_ID}`);
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || 'Error al cargar menú');
+
+    const categorias = data.menu || [];
+    if (categorias.length === 0) {
+      document.getElementById('menu-status').textContent = '⚠️ El menú está vacío. Agrega platos desde la API admin.';
+      return;
+    }
+
+    document.getElementById('menu-status').textContent = '';
+
+    // Guardar todos los platos para filtrar luego
+    categorias.forEach(c => c.platos.forEach(p => allItems.push({ ...p, categoria: c.categoria })));
+
+    // Botones de categoría
+    const filterDiv = document.getElementById('cat-filters');
+    const allBtn    = makeFilterBtn('Todos', null);
+    filterDiv.appendChild(allBtn);
+    categorias.forEach(c => filterDiv.appendChild(makeFilterBtn(c.categoria, c.categoria)));
+
+    // Activar "Todos" al inicio
+    allBtn.click();
+
+  } catch (err) {
+    document.getElementById('menu-status').textContent = '❌ No se pudo cargar el menú: ' + err.message;
+    console.error(err);
+  }
+}
+
+function makeFilterBtn(label, category) {
+  const btn = document.createElement('button');
+  btn.textContent = label;
+  btn.className = 'cat-btn px-4 py-1.5 rounded-full text-sm border border-red-300 text-red-700 hover:bg-red-100 transition font-medium';
+  btn.onclick = () => {
+    document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeCategory = category;
+    renderMenu();
+  };
+  return btn;
+}
+
+function renderMenu() {
+  const grid  = document.getElementById('menu-grid');
+  grid.innerHTML = '';
+  const items = activeCategory
+    ? allItems.filter(p => p.categoria === activeCategory)
+    : allItems;
+
+  items.forEach(plato => {
+    const card = document.createElement('div');
+    card.className = 'bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col hover:shadow-md transition';
+    card.innerHTML = `
+      <div class="h-36 bg-gradient-to-br from-red-50 to-amber-50 flex items-center justify-center overflow-hidden">
+        ${plato.imagen_url
+          ? `<img src="${plato.imagen_url}" alt="${plato.nombre}" class="h-full w-full object-cover" />`
+          : `<span class="text-5xl">🍽️</span>`}
+      </div>
+      <div class="p-3 flex flex-col flex-1">
+        <span class="text-xs text-red-600 font-semibold uppercase">${plato.categoria}</span>
+        <h3 class="font-bold text-gray-800 text-sm mt-0.5">${plato.nombre}</h3>
+        <p class="text-gray-500 text-xs mt-1 flex-1 line-clamp-2">${plato.descripcion || ''}</p>
+        <div class="flex items-center justify-between mt-3">
+          <span class="text-red-700 font-bold">S/ ${Number(plato.precio).toFixed(2)}</span>
+          ${plato.disponible
+            ? `<button onclick='addToCart(${JSON.stringify(plato)})'
+                        class="bg-red-700 hover:bg-red-800 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">
+                 + Agregar
+               </button>`
+            : `<span class="text-xs text-gray-400">Agotado</span>`}
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+// ── Carrito ───────────────────────────────────────────────
+function addToCart(plato) {
+  const existing = cart.find(i => i.id === plato.id);
+  if (existing) {
+    existing.cantidad++;
+  } else {
+    cart.push({ id: plato.id, nombre: plato.nombre, precio: plato.precio, cantidad: 1 });
+  }
+  renderCart();
+}
+
+function removeFromCart(id) {
+  const idx = cart.findIndex(i => i.id === id);
+  if (idx === -1) return;
+  if (cart[idx].cantidad > 1) cart[idx].cantidad--;
+  else cart.splice(idx, 1);
+  renderCart();
+}
+
+function renderCart() {
+  const list  = document.getElementById('cart-list');
+  const empty = document.getElementById('cart-empty');
+  const count = document.getElementById('cart-count');
+  const total = document.getElementById('cart-total');
+
+  list.querySelectorAll('.cart-item').forEach(e => e.remove());
+
+  if (cart.length === 0) {
+    empty.classList.remove('hidden');
+  } else {
+    empty.classList.add('hidden');
+    cart.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'cart-item flex items-center justify-between gap-2 text-sm';
+      div.innerHTML = `
+        <span class="text-gray-700 flex-1">${item.nombre}</span>
+        <div class="flex items-center gap-1">
+          <button onclick="removeFromCart('${item.id}')"
+                  class="w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold leading-none">−</button>
+          <span class="w-5 text-center font-semibold">${item.cantidad}</span>
+          <button onclick="addToCart(${JSON.stringify(item)})"
+                  class="w-6 h-6 rounded-full bg-red-100 hover:bg-red-200 text-red-700 font-bold leading-none">+</button>
+        </div>
+        <span class="text-gray-700 w-16 text-right">S/ ${(item.precio * item.cantidad).toFixed(2)}</span>`;
+      list.appendChild(div);
+    });
+  }
+
+  const totalAmount = cart.reduce((s, i) => s + i.precio * i.cantidad, 0);
+  count.textContent = cart.reduce((s, i) => s + i.cantidad, 0);
+  total.textContent = `S/ ${totalAmount.toFixed(2)}`;
+}
+
+// ── Hacer pedido ──────────────────────────────────────────
+async function hacerPedido() {
+  const nombre    = document.getElementById('cli-nombre').value.trim();
+  const telefono  = document.getElementById('cli-telefono').value.trim();
+  const direccion = document.getElementById('cli-direccion').value.trim();
+  const errorEl   = document.getElementById('pedido-error');
+
+  if (!nombre || !telefono || !direccion) {
+    showError('Completa todos tus datos.'); return;
+  }
+  if (cart.length === 0) {
+    showError('Agrega al menos un plato al carrito.'); return;
+  }
+
+  document.getElementById('btn-pedir').disabled = true;
+
+  const total = cart.reduce((s, i) => s + i.precio * i.cantidad, 0);
+
+  const body = {
+    tenant_id: TENANT_ID,
+    origen:    'WEB',
+    cliente:   { nombre, telefono, direccion },
+    items:     cart.map(i => ({ uuid: i.id, nombre: i.nombre, cantidad: i.cantidad, precio: i.precio })),
+    monto_total: parseFloat(total.toFixed(2)),
+  };
+
+  try {
+    const res  = await fetch(`${API_URL}/pedidos`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || 'Error al crear pedido');
+
+    currentPedidoId = data.pedido_id;
+    showTracker(data.pedido_id);
+
+  } catch (err) {
+    showError('No se pudo enviar el pedido: ' + err.message);
+  } finally {
+    document.getElementById('btn-pedir').disabled = false;
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('pedido-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 5000);
+}
+
+// ── Tracker ───────────────────────────────────────────────
+function showTracker(pedido_id) {
+  document.getElementById('tracker-id').textContent    = pedido_id;
+  document.getElementById('tracker-modal').classList.remove('hidden');
+  pollOrder(pedido_id);
+  // Actualiza cada 5 segundos
+  trackerInterval = setInterval(() => pollOrder(pedido_id), 5000);
+}
+
+async function pollOrder(pedido_id) {
+  try {
+    const res  = await fetch(`${API_URL}/pedidos/${pedido_id}?tenant_id=${TENANT_ID}`);
+    const data = await res.json();
+    if (!res.ok) return;
+    updateTimeline(data.estado, data.motivo_rechazo);
+  } catch (_) { /* silencioso */ }
+}
+
+// Mapeo de estado interno → paso visual (1-4)
+function estadoAStep(estado) {
+  if (!estado) return 0;
+  if (['PENDIENTE', 'ESPERANDO_COCINERO'].includes(estado))                         return 1;
+  if (['EN_PREPARACION', 'ESPERANDO_DESPACHADOR', 'EN_EMPAQUE',
+       'ESPERANDO_REPARTIDOR'].includes(estado))                                     return 2;
+  if (['EN_CAMINO', 'ESPERANDO_ENTREGA'].includes(estado))                          return 3;
+  if (estado === 'ENTREGADO')                                                        return 4;
+  return 0;
+}
+
+const ESTADO_LABEL = {
+  PENDIENTE:             'Pedido recibido, esperando cocina...',
+  ESPERANDO_COCINERO:    'En cola — esperando cocinero',
+  EN_PREPARACION:        '👨‍🍳 Cocinero preparando tu pedido',
+  ESPERANDO_DESPACHADOR: 'Listo, esperando despachador',
+  EN_EMPAQUE:            '📦 Empacando tu pedido',
+  ESPERANDO_REPARTIDOR:  'Empacado, esperando repartidor',
+  EN_CAMINO:             '🛵 Tu pedido está en camino',
+  ESPERANDO_ENTREGA:     '🛵 Por llegar a tu dirección',
+  ENTREGADO:             '✅ ¡Pedido entregado! Buen provecho',
+  RECHAZADO_SIN_STOCK:   '❌ Pedido no disponible',
+};
+
+function updateTimeline(estado, motivoRechazo) {
+  document.getElementById('tracker-estado').textContent = ESTADO_LABEL[estado] || estado;
+
+  const step = estadoAStep(estado);
+  for (let i = 1; i <= 4; i++) {
+    const el = document.getElementById(`s${i}`);
+    el.className = 'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 '
+      + (i < step ? 'step-done' : i === step ? 'step-active' : 'step-wait');
+  }
+
+  // Mostrar rechazo
+  const recEl = document.getElementById('tracker-rechazo');
+  if (estado === 'RECHAZADO_SIN_STOCK') {
+    recEl.classList.remove('hidden');
+    document.getElementById('tracker-rechazo-msg').textContent = motivoRechazo || '';
+    clearInterval(trackerInterval);
+  } else {
+    recEl.classList.add('hidden');
+  }
+
+  if (estado === 'ENTREGADO') clearInterval(trackerInterval);
+}
+
+function cerrarTracker() {
+  clearInterval(trackerInterval);
+  document.getElementById('tracker-modal').classList.add('hidden');
+}
+
+function nuevoPedido() {
+  clearInterval(trackerInterval);
+  document.getElementById('tracker-modal').classList.add('hidden');
+  cart = [];
+  renderCart();
+}
+
+// ── Arranque ──────────────────────────────────────────────
+loadMenu();
+</script>
+</body>
+</html>

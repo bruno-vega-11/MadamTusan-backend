@@ -522,7 +522,7 @@ stepFunctions:
             Choices:
               - Variable: "$.origen"
                 StringEquals: "RAPPI"
-                Next:  PedidoProcesadoConExito
+                Next: NotificarRappiEntregado
             Default: PedidoProcesadoConExito
 
           NotificarRappiEntregado:
@@ -532,6 +532,8 @@ stepFunctions:
              Parameters:
                estado: "ENTREGADO"
                "pedido_data.$": "$"
+             ResultPath: null
+             Next: PedidoProcesadoConExito
 
           # ── Estados terminales ─────────────────────────────────────────────
           PedidoProcesadoConExito:

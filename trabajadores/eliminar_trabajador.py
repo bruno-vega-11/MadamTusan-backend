@@ -3,7 +3,7 @@ import json
 import boto3
 
 dynamodb = boto3.resource("dynamodb")
-tabla_trabajadores = dynamodb.Table(os.environ["dev-t-trabajadores"])
+tabla_trabajadores = dynamodb.Table(os.environ.get("TABLE_TRABAJADORES", "dev-t-trabajadores"))
 
 
 def lambda_handle(event, context):

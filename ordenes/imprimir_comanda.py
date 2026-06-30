@@ -3,7 +3,7 @@ import boto3
 from datetime import datetime, timezone
 
 dynamodb = boto3.resource("dynamodb")
-tabla_pedidos = dynamodb.Table(os.environ["dev-t-pedidos"])
+tabla_pedidos = dynamodb.Table(os.environ.get("TABLE_PEDIDOS", "dev-t-pedidos"))
 
 
 def lambda_handle(event, context):

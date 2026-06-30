@@ -458,14 +458,13 @@ stepFunctions:
                 Next: NotificarRappiEntregado
             Default: PedidoProcesadoConExito
 
-          NotificarRappiEntregado:
-            Type: Task
-            Resource:
-              Fn::GetAtt: [notificar_rappi, Arn]
-            Parameters:
-              estado: "ENTREGADO"
-              "pedido_data.$": "$"
-            Next: PedidoProcesadoConExito
+          #NotificarRappiEntregado:
+            #Type: Task
+            #Resource:
+              #Fn::GetAtt: [notificar_rappi, Arn]
+            #Parameters:
+              #estado: "ENTREGADO"
+              #"pedido_data.$": "$"
 
           # ── Estados terminales ─────────────────────────────────────────────
           PedidoProcesadoConExito:

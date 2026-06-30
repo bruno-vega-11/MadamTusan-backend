@@ -1,6 +1,7 @@
 import os
 import boto3
 from datetime import datetime, timezone
+from helpers import a_decimal
 
 dynamodb = boto3.resource("dynamodb")
 tabla_pedidos = dynamodb.Table(os.environ["dev-t-pedidos"])
@@ -54,7 +55,7 @@ def lambda_handle(event, context):
     tabla_pedidos.update_item(
         Key={"tenant_id": tenant_id, "pedido_id": pedido_id},
         UpdateExpression=update_expr,
-        ExpressionAttributeValues=expr_values,
+        ExpressionAttributeValues=a_decimal(expr_values),
     )
 
     # No se retorna nada relevante: la ejecución queda pausada hasta el callback.

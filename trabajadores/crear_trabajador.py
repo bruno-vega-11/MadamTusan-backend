@@ -5,7 +5,7 @@ import boto3
 from datetime import datetime, timezone
 
 dynamodb = boto3.resource("dynamodb")
-tabla_trabajadores = dynamodb.Table(os.environ["dev-t-trabajadores"])
+tabla_trabajadores = dynamodb.Table(os.environ.get("TABLE_TRABAJADORES", "dev-t-trabajadores"))
 
 ROLES_VALIDOS = {"COCINERO", "DESPACHADOR", "REPARTIDOR"}
 

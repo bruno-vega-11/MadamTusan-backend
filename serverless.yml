@@ -455,7 +455,7 @@ stepFunctions:
             Choices:
               - Variable: "$.origen"
                 StringEquals: "RAPPI"
-                Next: NotificarRappiEntregado
+                Next:  PedidoProcesadoConExito
             Default: PedidoProcesadoConExito
 
           #NotificarRappiEntregado:

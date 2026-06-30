@@ -4,6 +4,7 @@ import os
 import re
 import uuid
 import boto3
+from decimal import Decimal
 
 dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
 tabla_usuarios = dynamodb.Table(os.environ.get("TABLE_USUARIOS", "dev-usuarios"))

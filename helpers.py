@@ -73,6 +73,43 @@ def conflicto(msg):    return respuesta(409, {"error": msg})
 def error_interno():   return respuesta(500, {"error": "Error interno del servidor"})
 
 
+def a_decimal(valor):
+    """
+    Convierte recursivamente todos los float de un dict/list a Decimal.
+    DynamoDB no soporta float, solo Decimal, int, str, bool, None.
+ 
+    Usar SIEMPRE antes de cualquier put_item/update_item cuyo payload
+    venga de un evento (EventBridge, Step Functions, body de request),
+    porque json.loads produce floats por defecto y eso es justo lo que
+    hace que put_item explote con:
+    "Float types are not supported. Use Decimal types instead."
+    """
+    if isinstance(valor, float):
+        return Decimal(str(valor))
+    if isinstance(valor, dict):
+        return {k: a_decimal(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [a_decimal(v) for v in valor]
+    return valor
+ 
+ 
+def de_decimal(valor):
+    """
+    Inverso de a_decimal: convierte Decimal a int/float antes de hacer
+    json.dumps en una respuesta HTTP, porque json no sabe serializar
+    Decimal por defecto (lanza TypeError: Object of type Decimal is
+    not JSON serializable).
+    """
+    if isinstance(valor, Decimal):
+        return int(valor) if valor % 1 == 0 else float(valor)
+    if isinstance(valor, dict):
+        return {k: de_decimal(v) for k, v in valor.items()}
+    if isinstance(valor, list):
+        return [de_decimal(v) for v in valor]
+    return valor
+ 
+
+
 # ── Body parser ───────────────────────────────────────────────────────────────
 
 def parsear_body(event):

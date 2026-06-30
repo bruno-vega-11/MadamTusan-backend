@@ -4,7 +4,7 @@ import boto3
 from datetime import datetime, timezone
 
 dynamodb = boto3.resource("dynamodb")
-tabla_pedidos = os.environ.get('TABLE_PEDIDOS', 'dev-t-pedidos')
+tabla_pedidos= dynamodb.Table(os.environ.get("TABLE_PEDIDOS", "dev-t-pedidos"))
 sfn = boto3.client("stepfunctions")
 eventbridge = boto3.client("events")
 

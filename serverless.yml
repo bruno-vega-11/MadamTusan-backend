@@ -212,6 +212,8 @@ functions:
 
   crear_trabajador:
     handler: trabajadores/crear_trabajador.lambda_handle
+    environment:
+      TABLE_TRABAJADORES: dev-t-trabajadores
     events:
       - http:
           path: trabajadores
@@ -224,6 +226,8 @@ functions:
  
   listar_trabajadores:
     handler: trabajadores/listar_trabajadores.lambda_handle
+    environment:
+      TABLE_TRABAJADORES: dev-t-trabajadores
     events:
       - http:
           path: trabajadores
@@ -236,6 +240,8 @@ functions:
  
   eliminar_trabajador:
     handler: trabajadores/eliminar_trabajador.lambda_handle
+    environment:
+      TABLE_TRABAJADORES: dev-t-trabajadores
     events:
       - http:
           path: trabajadores/{trabajador_id}/eliminar
